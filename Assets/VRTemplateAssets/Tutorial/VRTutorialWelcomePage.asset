@@ -15,7 +15,15 @@ MonoBehaviour:
   Modified:
     m_PersistentCalls:
       m_Calls: []
+  m_MaskEditor: 0
   m_Image: {fileID: 2800000, guid: 11e34d76fce7843be984510eca5c9139, type: 3}
+  m_HeaderContent:
+    m_ContentType: 0
+    m_Image: {fileID: 2800000, guid: 11e34d76fce7843be984510eca5c9139, type: 3}
+    m_VideoClip: {fileID: 0}
+    m_Url: 
+    m_AutoStart: 1
+    m_Loop: 1
   m_WindowTitle:
     m_Untranslated: VR Project Template
   m_Title:
