@@ -6,11 +6,12 @@ TagManager:
   tags:
   - Anchor
   - Checkpoint
+  - Floor
   layers:
   - Default
   - TransparentFX
   - Ignore Raycast
-  - 
+  - Floor
   - Water
   - UI
   - 
