@@ -11,7 +11,7 @@ public class ClimbProvider : MonoBehaviour
     [Header("중력 및 바닥 체크 설정")]
     public bool useGravity = true;
     public float gravity = 9.81f;
-    public float floorCheckDistance = 0.5f;
+    public float floorCheckDistance = 0.1f; // [보정] 이미 CharacterController가 있으므로 레이 길이를 줄입니다.
     public LayerMask floorLayer;
 
     [Header("리스폰 설정")]
@@ -21,12 +21,14 @@ public class ClimbProvider : MonoBehaviour
     public float climbMultiplier = 1.0f;
 
     private XROrigin xrOrigin;
+    private CharacterController characterController; // [추가] 캐릭터 컨트롤러 변수
     private ClimbingHand activeHand;
     private Vector3 lastHandWorldPos;
     private Vector3 fallVelocity;
     private Vector3 lastCheckpointPos;
     private bool isRespawning = false;
     private bool isClimbing = false;
+    private Coroutine respawnCoroutine;
 
     void Start()
     {
@@ -34,14 +36,19 @@ public class ClimbProvider : MonoBehaviour
         if (xrOrigin == null)
             xrOrigin = FindAnyObjectByType<XROrigin>();
 
-        if (xrOrigin == null)
+        if (xrOrigin != null)
         {
-            Debug.LogError("[ClimbProvider] 씬에서 XROrigin을 찾을 수 없습니다!");
+            // XR Origin에 붙어있는 CharacterController를 가져옵니다.
+            characterController = xrOrigin.GetComponent<CharacterController>();
+        }
+
+        if (xrOrigin == null || characterController == null)
+        {
+            Debug.LogError("[ClimbProvider] XROrigin 또는 CharacterController를 찾을 수 없습니다!");
             enabled = false;
             return;
         }
 
-        // 게임 시작 시 처음 위치를 안전한 첫 스폰 지점으로 기억
         lastCheckpointPos = xrOrigin.transform.position;
     }
 
@@ -51,16 +58,16 @@ public class ClimbProvider : MonoBehaviour
 
         if (newHand != null)
         {
-            if (activeHand != newHand)
+            if (!isClimbing || activeHand != newHand)
             {
                 activeHand = newHand;
                 lastHandWorldPos = GetHandTrackedPosition(activeHand);
                 isClimbing = true;
+                fallVelocity = Vector3.zero;
+                StopRespawn();
             }
 
             PerformClimb();
-            fallVelocity = Vector3.zero;
-            StopRespawn();
         }
         else
         {
@@ -76,7 +83,6 @@ public class ClimbProvider : MonoBehaviour
             }
         }
 
-        // [안전장치] 무한 추락 시 리스폰 강제 호출
         if (xrOrigin.transform.position.y < -30f)
         {
             ResetToSafety();
@@ -85,8 +91,11 @@ public class ClimbProvider : MonoBehaviour
 
     ClimbingHand GetCurrentHand()
     {
+        // 현재 잡고 있는 손이 있다면 그 손을 우선 유지
         if (activeHand != null && activeHand.isGrabbing)
             return activeHand;
+
+        // 새로 잡은 손이 있는지 체크
         if (rightHand != null && rightHand.isGrabbing)
             return rightHand;
         if (leftHand != null && leftHand.isGrabbing)
@@ -97,20 +106,27 @@ public class ClimbProvider : MonoBehaviour
 
     Vector3 GetHandTrackedPosition(ClimbingHand hand)
     {
+        if (xrOrigin != null)
+        {
+            return xrOrigin.transform.InverseTransformPoint(hand.transform.position);
+        }
         return hand.transform.position;
     }
 
     void PerformClimb()
     {
-        if (activeHand == null) return;
+        if (activeHand == null || characterController == null) return;
 
         Vector3 currentHandPos = GetHandTrackedPosition(activeHand);
         Vector3 delta = currentHandPos - lastHandWorldPos;
 
         if (delta.sqrMagnitude > 0.000001f)
         {
-            Vector3 move = -delta * climbMultiplier;
-            xrOrigin.transform.position += move;
+            Vector3 worldDelta = xrOrigin.transform.TransformDirection(delta);
+            Vector3 move = -worldDelta * climbMultiplier;
+
+            Debug.Log($"[ClimbProvider] 캐릭터 이동 시도! 이동 거리: {move}");
+            characterController.Move(move);
         }
 
         lastHandWorldPos = currentHandPos;
@@ -118,22 +134,10 @@ public class ClimbProvider : MonoBehaviour
 
     void ApplyGravity()
     {
-        if (xrOrigin == null || xrOrigin.Camera == null) return;
+        if (characterController == null) return;
 
-        Vector3 rayStart = xrOrigin.Camera.transform.position;
-        float totalRayLength = xrOrigin.CameraInOriginSpaceHeight + floorCheckDistance;
-
-        bool isGrounded = Physics.Raycast(
-            rayStart,
-            Vector3.down,
-            out RaycastHit hit,
-            totalRayLength,
-            floorLayer
-        );
-
-        Debug.DrawRay(rayStart, Vector3.down * totalRayLength, isGrounded ? Color.green : Color.red);
-
-        if (isGrounded)
+        // [수정] 내장 함수인 isGrounded를 활용하여 바닥 체크를 더 정확하게 바꿉니다.
+        if (characterController.isGrounded)
         {
             fallVelocity = Vector3.zero;
             StopRespawn();
@@ -141,10 +145,14 @@ public class ClimbProvider : MonoBehaviour
         else
         {
             fallVelocity.y -= gravity * Time.deltaTime;
-            xrOrigin.transform.position += fallVelocity * Time.deltaTime;
 
-            if (!isRespawning)
-                StartCoroutine(RespawnAfterDelay());
+            // 중력 적용 시에도 CharacterController를 통해 이동합니다.
+            characterController.Move(fallVelocity * Time.deltaTime);
+
+            if (!isRespawning && respawnCoroutine == null)
+            {
+                respawnCoroutine = StartCoroutine(RespawnAfterDelay());
+            }
         }
     }
 
@@ -153,42 +161,42 @@ public class ClimbProvider : MonoBehaviour
         isRespawning = true;
         yield return new WaitForSeconds(respawnDelay);
 
-        if (activeHand == null)
+        if (!isClimbing && activeHand == null)
         {
             ResetToSafety();
         }
 
         isRespawning = false;
+        respawnCoroutine = null;
     }
 
     void ResetToSafety()
     {
-        // 떨어지던 물리 속도 완벽 제거
         fallVelocity = Vector3.zero;
 
-        // [트래킹 먹통 방지 핵심 코드]
-        // 단순히 .position을 주면 카메라 트래킹(Tracked Pose Driver)이 풀려 시야가 고정됩니다.
-        // 카메라의 현재 수평 오차(HMD 오프셋)를 유지하면서 VR Rig 전체를 텔레포트시키는 공식을 사용합니다.
         Vector3 cameraOffset = xrOrigin.Camera.transform.position - xrOrigin.transform.position;
-        cameraOffset.y = 0; // 수평 위치 오차만 계산
+        cameraOffset.y = 0;
 
-        // 안전한 리스폰 좌표 계산 (바닥 파묻힘을 방지하기 위해 0.3m 여유 높이 부여)
         Vector3 targetSpawnPos = lastCheckpointPos - cameraOffset;
         targetSpawnPos.y += 0.3f;
 
-        // 이동 적용
+        // 텔레포트 시에는 CharacterController를 잠시 꺼두어야 좌표가 제대로 씹히지 않고 이동합니다.
+        characterController.enabled = false;
         xrOrigin.transform.position = targetSpawnPos;
+        characterController.enabled = true;
 
-        Debug.Log($"[ClimbProvider] 카메라 트래킹을 유지하며 안전 리스폰 완료: {targetSpawnPos}");
+        StopRespawn();
+        Debug.Log($"[ClimbProvider] 리스폰 완료: {targetSpawnPos}");
     }
 
     void StopRespawn()
     {
-        if (isRespawning)
+        if (respawnCoroutine != null)
         {
-            StopAllCoroutines();
-            isRespawning = false;
+            StopCoroutine(respawnCoroutine);
+            respawnCoroutine = null;
         }
+        isRespawning = false;
     }
 
     private void OnTriggerEnter(Collider other)
