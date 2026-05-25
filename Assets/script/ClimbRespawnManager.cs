@@ -66,7 +66,6 @@ public class ClimbRespawnManager : MonoBehaviour
                 isClimbing = true;
                 fallVelocity = Vector3.zero;
 
-                // [핵심] 그랩을 잡은 순간 실제 컨트롤러가 있던 월드 위치를 기록합니다.
                 lastHandWorldPos = activeHand.transform.position;
                 StopRespawn();
             }
@@ -108,7 +107,7 @@ public class ClimbRespawnManager : MonoBehaviour
 
     void PerformClimb()
     {
-        
+        // 기존 공란 유지
     }
 
     void ApplyGravity()
@@ -132,7 +131,6 @@ public class ClimbRespawnManager : MonoBehaviour
         }
     }
 
-    // ... 리스폰 및 체크포인트 로직은 기존과 동일 ...
     IEnumerator RespawnAfterDelay()
     {
         isRespawning = true;
@@ -153,6 +151,14 @@ public class ClimbRespawnManager : MonoBehaviour
         if (characterController != null) characterController.enabled = false;
         xrOrigin.transform.position = targetSpawnPos;
         if (characterController != null) characterController.enabled = true;
+
+        // [연동 추가] 죽어서 체크포인트로 리스폰될 때 스태미나도 100으로 완전 회복시켜 줍니다.
+        StaminaManager stamina = FindAnyObjectByType<StaminaManager>();
+        if (stamina != null)
+        {
+            stamina.currentStamina = stamina.maxStamina;
+        }
+
         StopRespawn();
     }
 
