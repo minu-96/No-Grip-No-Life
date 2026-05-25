@@ -1,27 +1,29 @@
 using UnityEngine;
 using System.Collections;
 using Unity.XR.CoreUtils;
+using UnityEngine.XR.Interaction.Toolkit;
+using UnityEngine.XR.Interaction.Toolkit.Locomotion;
 
-public class ClimbProvider : MonoBehaviour
+public class ClimbRespawnManager : MonoBehaviour
 {
-    [Header("¼Õ ¼³Á¤")]
+    [Header("ì† ì„¤ì •")]
     public ClimbingHand leftHand;
     public ClimbingHand rightHand;
 
-    [Header("Áß·Â ¹× ¹Ù´Ú Ã¼Å© ¼³Á¤")]
+    [Header("ì¤‘ë ¥ ë° ë°”ë‹¥ ì²´í¬ ì„¤ì •")]
     public bool useGravity = true;
     public float gravity = 9.81f;
-    public float floorCheckDistance = 0.1f; // [º¸Á¤] ÀÌ¹Ì CharacterController°¡ ÀÖÀ¸¹Ç·Î ·¹ÀÌ ±æÀÌ¸¦ ÁÙÀÔ´Ï´Ù.
-    public LayerMask floorLayer;
 
-    [Header("¸®½ºÆù ¼³Á¤")]
+    [Header("ë¦¬ìŠ¤í° ì„¤ì •")]
     public float respawnDelay = 3.0f;
 
-    [Header("Å¬¶óÀÌ¹Ö ¹èÀ²")]
+    [Header("í´ë¼ì´ë° ë°°ìœ¨")]
     public float climbMultiplier = 1.0f;
 
     private XROrigin xrOrigin;
-    private CharacterController characterController; // [Ãß°¡] Ä³¸¯ÅÍ ÄÁÆ®·Ñ·¯ º¯¼ö
+    private CharacterController characterController;
+    private LocomotionMediator locomotionMediator;
+
     private ClimbingHand activeHand;
     private Vector3 lastHandWorldPos;
     private Vector3 fallVelocity;
@@ -38,13 +40,13 @@ public class ClimbProvider : MonoBehaviour
 
         if (xrOrigin != null)
         {
-            // XR Origin¿¡ ºÙ¾îÀÖ´Â CharacterController¸¦ °¡Á®¿É´Ï´Ù.
             characterController = xrOrigin.GetComponent<CharacterController>();
+            locomotionMediator = FindAnyObjectByType<LocomotionMediator>();
         }
 
-        if (xrOrigin == null || characterController == null)
+        if (xrOrigin == null || characterController == null || locomotionMediator == null)
         {
-            Debug.LogError("[ClimbProvider] XROrigin ¶Ç´Â CharacterController¸¦ Ã£À» ¼ö ¾ø½À´Ï´Ù!");
+            Debug.LogError("[ClimbProvider] í•„ìˆ˜ ì»´í¬ë„ŒíŠ¸ë¥¼ ì°¾ì„ ìˆ˜ ì—†ìŠµë‹ˆë‹¤!");
             enabled = false;
             return;
         }
@@ -61,9 +63,11 @@ public class ClimbProvider : MonoBehaviour
             if (!isClimbing || activeHand != newHand)
             {
                 activeHand = newHand;
-                lastHandWorldPos = GetHandTrackedPosition(activeHand);
                 isClimbing = true;
                 fallVelocity = Vector3.zero;
+
+                // [í•µì‹¬] ê·¸ë©ì„ ì¡ì€ ìˆœê°„ ì‹¤ì œ ì»¨íŠ¸ë¡¤ëŸ¬ê°€ ìˆë˜ ì›”ë“œ ìœ„ì¹˜ë¥¼ ê¸°ë¡í•©ë‹ˆë‹¤.
+                lastHandWorldPos = activeHand.transform.position;
                 StopRespawn();
             }
 
@@ -91,11 +95,9 @@ public class ClimbProvider : MonoBehaviour
 
     ClimbingHand GetCurrentHand()
     {
-        // ÇöÀç Àâ°í ÀÖ´Â ¼ÕÀÌ ÀÖ´Ù¸é ±× ¼ÕÀ» ¿ì¼± À¯Áö
         if (activeHand != null && activeHand.isGrabbing)
             return activeHand;
 
-        // »õ·Î ÀâÀº ¼ÕÀÌ ÀÖ´ÂÁö Ã¼Å©
         if (rightHand != null && rightHand.isGrabbing)
             return rightHand;
         if (leftHand != null && leftHand.isGrabbing)
@@ -104,39 +106,15 @@ public class ClimbProvider : MonoBehaviour
         return null;
     }
 
-    Vector3 GetHandTrackedPosition(ClimbingHand hand)
-    {
-        if (xrOrigin != null)
-        {
-            return xrOrigin.transform.InverseTransformPoint(hand.transform.position);
-        }
-        return hand.transform.position;
-    }
-
     void PerformClimb()
     {
-        if (activeHand == null || characterController == null) return;
-
-        Vector3 currentHandPos = GetHandTrackedPosition(activeHand);
-        Vector3 delta = currentHandPos - lastHandWorldPos;
-
-        if (delta.sqrMagnitude > 0.000001f)
-        {
-            Vector3 worldDelta = xrOrigin.transform.TransformDirection(delta);
-            Vector3 move = -worldDelta * climbMultiplier;
-
-            Debug.Log($"[ClimbProvider] Ä³¸¯ÅÍ ÀÌµ¿ ½Ãµµ! ÀÌµ¿ °Å¸®: {move}");
-            characterController.Move(move);
-        }
-
-        lastHandWorldPos = currentHandPos;
+        
     }
 
     void ApplyGravity()
     {
-        if (characterController == null) return;
+        if (characterController == null || !characterController.enabled) return;
 
-        // [¼öÁ¤] ³»Àå ÇÔ¼öÀÎ isGrounded¸¦ È°¿ëÇÏ¿© ¹Ù´Ú Ã¼Å©¸¦ ´õ Á¤È®ÇÏ°Ô ¹Ù²ß´Ï´Ù.
         if (characterController.isGrounded)
         {
             fallVelocity = Vector3.zero;
@@ -145,8 +123,6 @@ public class ClimbProvider : MonoBehaviour
         else
         {
             fallVelocity.y -= gravity * Time.deltaTime;
-
-            // Áß·Â Àû¿ë ½Ã¿¡µµ CharacterController¸¦ ÅëÇØ ÀÌµ¿ÇÕ´Ï´Ù.
             characterController.Move(fallVelocity * Time.deltaTime);
 
             if (!isRespawning && respawnCoroutine == null)
@@ -156,16 +132,12 @@ public class ClimbProvider : MonoBehaviour
         }
     }
 
+    // ... ë¦¬ìŠ¤í° ë° ì²´í¬í¬ì¸íŠ¸ ë¡œì§ì€ ê¸°ì¡´ê³¼ ë™ì¼ ...
     IEnumerator RespawnAfterDelay()
     {
         isRespawning = true;
         yield return new WaitForSeconds(respawnDelay);
-
-        if (!isClimbing && activeHand == null)
-        {
-            ResetToSafety();
-        }
-
+        if (!isClimbing && activeHand == null) ResetToSafety();
         isRespawning = false;
         respawnCoroutine = null;
     }
@@ -173,38 +145,25 @@ public class ClimbProvider : MonoBehaviour
     void ResetToSafety()
     {
         fallVelocity = Vector3.zero;
-
         Vector3 cameraOffset = xrOrigin.Camera.transform.position - xrOrigin.transform.position;
         cameraOffset.y = 0;
-
         Vector3 targetSpawnPos = lastCheckpointPos - cameraOffset;
         targetSpawnPos.y += 0.3f;
 
-        // ÅÚ·¹Æ÷Æ® ½Ã¿¡´Â CharacterController¸¦ Àá½Ã ²¨µÎ¾î¾ß ÁÂÇ¥°¡ Á¦´ë·Î ¾ÃÈ÷Áö ¾Ê°í ÀÌµ¿ÇÕ´Ï´Ù.
-        characterController.enabled = false;
+        if (characterController != null) characterController.enabled = false;
         xrOrigin.transform.position = targetSpawnPos;
-        characterController.enabled = true;
-
+        if (characterController != null) characterController.enabled = true;
         StopRespawn();
-        Debug.Log($"[ClimbProvider] ¸®½ºÆù ¿Ï·á: {targetSpawnPos}");
     }
 
     void StopRespawn()
     {
-        if (respawnCoroutine != null)
-        {
-            StopCoroutine(respawnCoroutine);
-            respawnCoroutine = null;
-        }
+        if (respawnCoroutine != null) { StopCoroutine(respawnCoroutine); respawnCoroutine = null; }
         isRespawning = false;
     }
 
     private void OnTriggerEnter(Collider other)
     {
-        if (other.CompareTag("Checkpoint"))
-        {
-            lastCheckpointPos = xrOrigin.transform.position;
-            Debug.Log($"[ClimbProvider] Ã¼Å©Æ÷ÀÎÆ® °»½Å: {lastCheckpointPos}");
-        }
+        if (other.CompareTag("Checkpoint")) lastCheckpointPos = xrOrigin.transform.position;
     }
 }

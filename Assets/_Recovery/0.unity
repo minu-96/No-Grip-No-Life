@@ -255,8 +255,12 @@ MonoBehaviour:
   rightHand: {fileID: 521717465}
   useGravity: 1
   gravity: 9.81
+  floorCheckDistance: 1
+  floorLayer:
+    serializedVersion: 2
+    m_Bits: 8
   respawnDelay: 3
-  climbMultiplier: 1.5
+  climbMultiplier: 1
 --- !u!114 &123309969
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -286,7 +290,7 @@ GameObject:
   - component: {fileID: 344596757}
   - component: {fileID: 344596756}
   - component: {fileID: 344596762}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: GrabPoint (4)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -464,7 +468,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -570,7 +574,7 @@ GameObject:
   - component: {fileID: 379846574}
   - component: {fileID: 379846573}
   - component: {fileID: 379846579}
-  m_Layer: 6
+  m_Layer: 8
   m_Name: GrabPoint (1)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -748,7 +752,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -919,7 +923,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e230071db565eb34c97e654be15c31a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClimbingHand
-  xrOrigin: {fileID: 123309955}
+  grabDetector: {fileID: 521717464}
   gripAction:
     m_UseReference: 1
     m_Action:
@@ -932,6 +936,18 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: 187161793506945269, guid: c348712bda248c246b8c49b3db54643f, type: 3}
+  velocityAction:
+    m_UseReference: 0
+    m_Action:
+      m_Name: 
+      m_Type: 0
+      m_ExpectedControlType: 
+      m_Id: 47fcc441-2775-4d0e-94a4-4704bb8dcdd4
+      m_Processors: 
+      m_Interactions: 
+      m_SingletonActionBindings: []
+      m_Flags: 0
+    m_Reference: {fileID: 0}
 --- !u!54 &521717466
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -1083,7 +1099,7 @@ GameObject:
   - component: {fileID: 660723294}
   - component: {fileID: 660723293}
   - component: {fileID: 660723299}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: GrabPoint (6)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1261,7 +1277,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -1382,7 +1398,7 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e230071db565eb34c97e654be15c31a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClimbingHand
-  xrOrigin: {fileID: 123309955}
+  grabDetector: {fileID: 706578392}
   gripAction:
     m_UseReference: 1
     m_Action:
@@ -1395,6 +1411,18 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: -6131295136447488360, guid: c348712bda248c246b8c49b3db54643f, type: 3}
+  velocityAction:
+    m_UseReference: 0
+    m_Action:
+      m_Name: 
+      m_Type: 0
+      m_ExpectedControlType: 
+      m_Id: 146f2e69-dd21-4dde-b7fd-a928278b37e3
+      m_Processors: 
+      m_Interactions: 
+      m_SingletonActionBindings: []
+      m_Flags: 0
+    m_Reference: {fileID: 0}
 --- !u!135 &706578394
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1631,7 +1659,7 @@ GameObject:
   - component: {fileID: 1116196832}
   - component: {fileID: 1116196831}
   - component: {fileID: 1116196837}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: GrabPoint (5)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -1809,7 +1837,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -1915,7 +1943,7 @@ GameObject:
   - component: {fileID: 1130158362}
   - component: {fileID: 1130158361}
   - component: {fileID: 1130158367}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: GrabPoint (3)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2093,7 +2121,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
@@ -2230,7 +2258,7 @@ GameObject:
   - component: {fileID: 1154030013}
   - component: {fileID: 1154030012}
   - component: {fileID: 1154030018}
-  m_Layer: 6
+  m_Layer: 8
   m_Name: GrabPoint
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -2892,10 +2920,6 @@ PrefabInstance:
       propertyPath: m_Layer
       value: 7
       objectReference: {fileID: 0}
-    - target: {fileID: 2469343163355645486, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
-      propertyPath: m_Enabled
-      value: 1
-      objectReference: {fileID: 0}
     - target: {fileID: 2696013438242442359, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Layer
       value: 7
@@ -2907,10 +2931,6 @@ PrefabInstance:
     - target: {fileID: 2898801626161065945, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Enabled
       value: 1
-      objectReference: {fileID: 0}
-    - target: {fileID: 3051491437750746931, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
-      propertyPath: m_IsActive
-      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 3477391790888308519, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Layer
@@ -2975,10 +2995,6 @@ PrefabInstance:
     - target: {fileID: 3630594833773314612, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Layer
       value: 7
-      objectReference: {fileID: 0}
-    - target: {fileID: 3752030747713321391, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
-      propertyPath: m_Enabled
-      value: 1
       objectReference: {fileID: 0}
     - target: {fileID: 4022796369627591441, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Layer
@@ -3470,7 +3486,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8053059486601427065, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Enabled
-      value: 1
+      value: 0
       objectReference: {fileID: 0}
     - target: {fileID: 8202401659471145657, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_Enabled
@@ -3880,7 +3896,7 @@ GameObject:
   - component: {fileID: 1789277211}
   - component: {fileID: 1789277210}
   - component: {fileID: 1789277216}
-  m_Layer: 0
+  m_Layer: 8
   m_Name: GrabPoint (2)
   m_TagString: Untagged
   m_Icon: {fileID: 0}
@@ -4058,7 +4074,7 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 1
+  m_IsTrigger: 0
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
