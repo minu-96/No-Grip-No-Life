@@ -3,104 +3,126 @@ using UnityEngine.InputSystem;
 
 public class ClimbingHand : MonoBehaviour
 {
-    [Header("필수 연결 (XR Origin만 드래그해서 넣어주세요)")]
+    public enum HandType { Left, Right }
+
+    [Header("손 구분 및 필수 연결")]
+    public HandType handType;
     public GameObject xrOrigin;
 
     [Header("인풋 설정")]
     public InputActionProperty gripAction;
+    public InputActionProperty handPositionAction;
 
-    public bool isGrabbing { get; private set; }
+    [Header("그랩 감지 범위 설정")]
+    [Tooltip("손 중심에서 몇 미터(m) 안의 오브젝트를 잡을지 결정 (기본 0.15 추천)")]
+    public float grabRadius = 0.15f;
 
-    private HandGrabDetector grabDetector;
-    private CharacterController characterController;
+    [Header("상태 확인")]
+    public bool isGrabbing;
+    public string targetPointName;
+
     private GrabPoint grabbedPoint;
-
-    // 그랩 성공 순간의 '진짜 월드 좌표'를 기억할 변수
-    private Vector3 grabbedWorldPosition;
-    private Quaternion grabbedWorldRotation;
+    private Vector3 previousHandWorldPos;
+    private const float MOVE_DEADZONE_SQR = 0.000005f;
 
     void Start()
     {
-        grabDetector = GetComponent<HandGrabDetector>();
-
-        if (xrOrigin != null)
+        if (ClimbingManager.Instance != null)
         {
-            characterController = xrOrigin.GetComponent<CharacterController>();
+            if (handType == HandType.Left) ClimbingManager.Instance.leftHand = this;
+            else ClimbingManager.Instance.rightHand = this;
         }
+    }
+
+    void OnEnable()
+    {
+        if (gripAction.action != null) gripAction.action.Enable();
+        if (handPositionAction.action != null) handPositionAction.action.Enable();
     }
 
     void Update()
     {
+        if (gripAction.action == null) return;
         float gripValue = gripAction.action.ReadValue<float>();
-        bool gripPressed = gripValue > 0.5f;
 
-        if (gripPressed)
+        if (!isGrabbing)
         {
-            if (!isGrabbing) TryGrab();
+            if (gripValue > 0.7f) TryGrab();
         }
         else
         {
-            if (isGrabbing) Release();
-        }
-
-        // Q/E 키 직통 이동
-        if (isGrabbing && grabbedPoint != null)
-        {
-            var keyboard = UnityEngine.InputSystem.Keyboard.current;
-
-            if (keyboard != null)
+            // 스태미나 0 이하일 때 추락
+            StaminaManager stamina = FindObjectOfType<StaminaManager>();
+            if (stamina != null && stamina.currentStamina <= 0f)
             {
-                if (keyboard.qKey.isPressed)
-                {
-                    if (characterController != null) characterController.enabled = false;
-                    xrOrigin.transform.position += Vector3.up * Time.deltaTime * 5.0f;
-                    if (characterController != null) characterController.enabled = true;
-                }
-                else if (keyboard.eKey.isPressed)
-                {
-                    if (characterController != null) characterController.enabled = false;
-                    xrOrigin.transform.position += Vector3.down * Time.deltaTime * 5.0f;
-                    if (characterController != null) characterController.enabled = true;
-                }
+                Release();
+                return;
             }
+
+            if (gripValue < 0.2f) Release();
         }
     }
 
-    // [최종 마침표] 몸(XR Origin)이 움직여서 자식인 손을 강제로 끌고 올라가려고 할 때,
-    // 매 프레임 가장 마지막 단계(LateUpdate)에서 손을 원래 그랩했던 월드 좌표로 찍어 눌러버립니다.
     void LateUpdate()
     {
-        if (isGrabbing)
+        if (isGrabbing && grabbedPoint != null && xrOrigin != null)
         {
-            transform.position = grabbedWorldPosition;
-            transform.rotation = grabbedWorldRotation;
+            // 월드 좌표 기반 이동 (축 뒤틀림 완벽 방지)
+            Vector3 currentHandWorldPos = transform.position;
+            Vector3 handMoveDelta = currentHandWorldPos - previousHandWorldPos;
+
+            if (handMoveDelta.sqrMagnitude > MOVE_DEADZONE_SQR)
+            {
+                xrOrigin.transform.position -= handMoveDelta;
+            }
+
+            // 시각적 고정
+            transform.position = grabbedPoint.transform.position;
+            previousHandWorldPos = transform.position;
         }
     }
 
     void TryGrab()
     {
-        // [추가된 안전장치] 스태미나가 0이면 애초에 잡기 시도 자체를 막습니다.
         StaminaManager stamina = FindObjectOfType<StaminaManager>();
         if (stamina != null && stamina.currentStamina <= 0f) return;
 
-        if (grabDetector == null) return;
-        GrabPoint nearestPoint = grabDetector.currentPoint;
+        // 반경 내 모든 콜라이더 수집
+        Collider[] hitColliders = Physics.OverlapSphere(transform.position, grabRadius);
 
-        if (nearestPoint != null && !nearestPoint.occupied)
+        GrabPoint closestPoint = null;
+        float closestDistance = Mathf.Infinity;
+
+        foreach (var col in hitColliders)
         {
-            grabbedPoint = nearestPoint;
-            grabbedPoint.occupied = true;
-            isGrabbing = true;
+            GrabPoint point = col.GetComponent<GrabPoint>();
+            // [💥 핵심 수정]: point.occupied 조건을 완전히 삭제하여, 다른 손이 잡고 있든 말든 무조건 탐색합니다!
+            if (point != null)
+            {
+                // 내 주먹이나 몸뚱이를 잡는 예외 처리
+                if (point.transform.IsChildOf(transform.root)) continue;
 
-            // 1. 마우스 트래킹 장치를 끕니다.
-            SetTrackingEnabled(false);
-
-            // 2. [핵심] 그랩한 순간 내 눈에 보이던 '그 절대적인 월드 좌표'를 복사해 둡니다.
-            grabbedWorldPosition = transform.position;
-            grabbedWorldRotation = transform.rotation;
-
-            Debug.Log($"{gameObject.name} 그랩 성공! 절대 좌표 기억 및 LateUpdate 잠금 시작.");
+                float dist = Vector3.Distance(transform.position, point.transform.position);
+                if (dist < closestDistance)
+                {
+                    closestDistance = dist;
+                    closestPoint = point;
+                }
+            }
         }
+
+        // 주변에 잡을 게 없으면 취소
+        if (closestPoint == null) return;
+
+        // 최종 그랩 성공 처리
+        grabbedPoint = closestPoint;
+        isGrabbing = true;
+
+        targetPointName = grabbedPoint.gameObject.name;
+        previousHandWorldPos = transform.position;
+
+        // 이 로그가 안 뜰 수가 없습니다!
+        Debug.LogWarning($"🎯 [그랩 성공 로그] {gameObject.name}이 [{targetPointName}]을 완벽하게 붙잡았습니다!");
     }
 
     public void Release()
@@ -108,33 +130,16 @@ public class ClimbingHand : MonoBehaviour
         if (isGrabbing)
         {
             isGrabbing = false;
-
-            // 손을 놓으면 트래킹 장치를 다시 켜서 마우스를 따르게 합니다.
-            SetTrackingEnabled(true);
-
-            Debug.Log($"{gameObject.name} 릴리즈! 트래킹 복구.");
+            Debug.LogWarning($"❌ [릴리즈 로그] {gameObject.name}이 손을 놓았습니다.");
         }
 
-        if (grabbedPoint != null)
-        {
-            grabbedPoint.occupied = false;
-            grabbedPoint = null;
-        }
+        grabbedPoint = null;
+        targetPointName = "";
     }
 
-    private void SetTrackingEnabled(bool enabled)
+    private void OnDrawGizmosSelected()
     {
-        Component[] components = GetComponentsInParent<Component>();
-        foreach (var comp in components)
-        {
-            string name = comp.GetType().Name;
-            if (name.Contains("TrackedPoseDriver") || name.Contains("XRController") || name.Contains("ActionBasedController"))
-            {
-                if (comp is MonoBehaviour mono)
-                {
-                    mono.enabled = enabled;
-                }
-            }
-        }
+        Gizmos.color = Color.green;
+        Gizmos.DrawWireSphere(transform.position, grabRadius);
     }
 }
