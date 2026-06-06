@@ -255,11 +255,8 @@ MonoBehaviour:
   rightHand: {fileID: 521717465}
   useGravity: 1
   gravity: 9.81
-  floorCheckDistance: 1
-  floorLayer:
-    serializedVersion: 2
-    m_Bits: 8
   respawnDelay: 3
+  deathYThreshold: -30
   climbMultiplier: 1
 --- !u!114 &123309969
 MonoBehaviour:
@@ -558,7 +555,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &379846572
 GameObject:
   m_ObjectHideFlags: 0
@@ -842,7 +838,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &423529120
 GameObject:
   m_ObjectHideFlags: 0
@@ -910,7 +905,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc573e0b207777344b136dbb5f65debf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HandGrabDetector
-  currentPoint: {fileID: 1154030018}
 --- !u!114 &521717465
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -923,7 +917,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e230071db565eb34c97e654be15c31a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClimbingHand
-  grabDetector: {fileID: 521717464}
+  handType: 0
+  xrOrigin: {fileID: 0}
   gripAction:
     m_UseReference: 1
     m_Action:
@@ -936,18 +931,21 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: 187161793506945269, guid: c348712bda248c246b8c49b3db54643f, type: 3}
-  velocityAction:
+  handPositionAction:
     m_UseReference: 0
     m_Action:
       m_Name: 
       m_Type: 0
       m_ExpectedControlType: 
-      m_Id: 47fcc441-2775-4d0e-94a4-4704bb8dcdd4
+      m_Id: fbdbafe5-5543-4bbe-bd55-42d293b30838
       m_Processors: 
       m_Interactions: 
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: 0}
+  grabRadius: 0.15
+  isGrabbing: 0
+  targetPointName: 
 --- !u!54 &521717466
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -1367,7 +1365,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &706578385 stripped
 GameObject:
   m_CorrespondingSourceObject: {fileID: 7917674758919744183, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
@@ -1385,7 +1382,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: dc573e0b207777344b136dbb5f65debf, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::HandGrabDetector
-  currentPoint: {fileID: 1154030018}
 --- !u!114 &706578393
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -1398,7 +1394,8 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e230071db565eb34c97e654be15c31a2, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::ClimbingHand
-  grabDetector: {fileID: 706578392}
+  handType: 0
+  xrOrigin: {fileID: 0}
   gripAction:
     m_UseReference: 1
     m_Action:
@@ -1411,18 +1408,21 @@ MonoBehaviour:
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: -6131295136447488360, guid: c348712bda248c246b8c49b3db54643f, type: 3}
-  velocityAction:
+  handPositionAction:
     m_UseReference: 0
     m_Action:
       m_Name: 
       m_Type: 0
       m_ExpectedControlType: 
-      m_Id: 146f2e69-dd21-4dde-b7fd-a928278b37e3
+      m_Id: c1a75277-cfb2-47b9-ae52-ee743b168183
       m_Processors: 
       m_Interactions: 
       m_SingletonActionBindings: []
       m_Flags: 0
     m_Reference: {fileID: 0}
+  grabRadius: 0.15
+  isGrabbing: 0
+  targetPointName: 
 --- !u!135 &706578394
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -1927,7 +1927,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &1130158360
 GameObject:
   m_ObjectHideFlags: 0
@@ -2211,7 +2210,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &1138478880
 GameObject:
   m_ObjectHideFlags: 0
@@ -2526,7 +2524,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1 &1194470704
 GameObject:
   m_ObjectHideFlags: 0
@@ -2640,6 +2637,63 @@ Transform:
   - {fileID: 1538556065}
   m_Father: {fileID: 0}
   m_LocalEulerAnglesHint: {x: 0, y: 0, z: 0}
+--- !u!1001 &1297320858
+PrefabInstance:
+  m_ObjectHideFlags: 0
+  serializedVersion: 2
+  m_Modification:
+    serializedVersion: 3
+    m_TransformParent: {fileID: 0}
+    m_Modifications:
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalPosition.x
+      value: -3.489817
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalPosition.y
+      value: -0.97
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalPosition.z
+      value: -4.4158535
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalRotation.w
+      value: 1
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalRotation.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalRotation.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalRotation.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.x
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.y
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1230180793171644381, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_LocalEulerAnglesHint.z
+      value: 0
+      objectReference: {fileID: 0}
+    - target: {fileID: 1655647393637533790, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
+      propertyPath: m_Name
+      value: Generator_OnOff
+      objectReference: {fileID: 0}
+    m_RemovedComponents: []
+    m_RemovedGameObjects: []
+    m_AddedGameObjects: []
+    m_AddedComponents: []
+  m_SourcePrefab: {fileID: 100100000, guid: 5fe4e909225b0d246b7afdb542717539, type: 3}
 --- !u!1001 &1373153106
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4164,7 +4218,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e9bb86803c30f0141ac8da118cb8ab84, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GrabPoint
-  occupied: 0
 --- !u!1001 &1791167688
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -4704,3 +4757,4 @@ SceneRoots:
   - {fileID: 1791167688}
   - {fileID: 1138478881}
   - {fileID: 1836370678}
+  - {fileID: 1297320858}
