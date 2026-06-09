@@ -6,6 +6,7 @@ public class ClimbingManager : MonoBehaviour
 
     [HideInInspector] public ClimbingHand leftHand;
     [HideInInspector] public ClimbingHand rightHand;
+    [HideInInspector] public ClimbingHand activeHand;
 
     private CharacterController characterController;
 
@@ -17,6 +18,16 @@ public class ClimbingManager : MonoBehaviour
     void Start()
     {
         characterController = GetComponentInChildren<CharacterController>();
+    }
+
+    public void SetActiveHand(ClimbingHand hand)
+    {
+        activeHand = hand;
+    }
+
+    public bool IsActiveHand(ClimbingHand hand)
+    {
+        return activeHand == hand;
     }
 
     void LateUpdate()
@@ -32,6 +43,8 @@ public class ClimbingManager : MonoBehaviour
         }
         else
         {
+            activeHand = null;
+
             if (!characterController.enabled) characterController.enabled = true;
         }
     }

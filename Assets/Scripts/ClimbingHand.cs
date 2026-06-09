@@ -1,5 +1,6 @@
 using UnityEngine;
 using UnityEngine.InputSystem;
+using UnityEngine.XR;
 
 public class ClimbingHand : MonoBehaviour
 {
@@ -13,13 +14,28 @@ public class ClimbingHand : MonoBehaviour
     public InputActionProperty gripAction;
     public InputActionProperty handPositionAction;
 
+    [Header("그랩 감지")]
+    public HandGrabDetector grabDetector;
+
     [Header("그랩 감지 범위 설정")]
     [Tooltip("손 중심에서 몇 미터(m) 안의 오브젝트를 잡을지 결정 (기본 0.15 추천)")]
     public float grabRadius = 0.15f;
 
+    [Header("클라이밍 이동 설정")]
+    [Tooltip("손 이동량이 몸 이동에 반영되는 배율입니다. 1이면 손 이동량 그대로 반영됩니다.")]
+    public float climbMoveMultiplier = 1.0f;
+
+    [Tooltip("그랩 가능한 레이어입니다. Climbable 레이어를 선택하세요.")]
+    public LayerMask grabPointLayer;
+
     [Header("상태 확인")]
     public bool isGrabbing;
     public string targetPointName;
+
+    [Header("햅틱 설정")]
+    public bool useHaptics = true;
+    [Range(0f, 1f)] public float hapticAmplitude = 0.5f;
+    public float hapticDuration = 0.08f;
 
     private GrabPoint grabbedPoint;
     private Vector3 previousHandWorldPos;
@@ -43,6 +59,7 @@ public class ClimbingHand : MonoBehaviour
     void Update()
     {
         if (gripAction.action == null) return;
+
         float gripValue = gripAction.action.ReadValue<float>();
 
         if (!isGrabbing)
@@ -51,7 +68,6 @@ public class ClimbingHand : MonoBehaviour
         }
         else
         {
-            // 스태미나 0 이하일 때 추락
             StaminaManager stamina = FindObjectOfType<StaminaManager>();
             if (stamina != null && stamina.currentStamina <= 0f)
             {
@@ -65,64 +81,75 @@ public class ClimbingHand : MonoBehaviour
 
     void LateUpdate()
     {
-        if (isGrabbing && grabbedPoint != null && xrOrigin != null)
+        if (!isGrabbing || grabbedPoint == null || xrOrigin == null) return;
+
+        if (ClimbingManager.Instance != null &&
+            !ClimbingManager.Instance.IsActiveHand(this))
         {
-            // 월드 좌표 기반 이동 (축 뒤틀림 완벽 방지)
-            Vector3 currentHandWorldPos = transform.position;
-            Vector3 handMoveDelta = currentHandWorldPos - previousHandWorldPos;
-
-            if (handMoveDelta.sqrMagnitude > MOVE_DEADZONE_SQR)
-            {
-                xrOrigin.transform.position -= handMoveDelta;
-            }
-
-            // 시각적 고정
-            transform.position = grabbedPoint.transform.position;
-            previousHandWorldPos = transform.position;
+            return;
         }
-    }
 
+        Vector3 currentHandWorldPos = transform.position;
+        Vector3 handMoveDelta = currentHandWorldPos - previousHandWorldPos;
+
+        if (handMoveDelta.sqrMagnitude > MOVE_DEADZONE_SQR)
+        {
+            xrOrigin.transform.position -= handMoveDelta;
+        }
+
+        previousHandWorldPos = transform.position;
+    }
     void TryGrab()
     {
         StaminaManager stamina = FindObjectOfType<StaminaManager>();
         if (stamina != null && stamina.currentStamina <= 0f) return;
 
-        // 반경 내 모든 콜라이더 수집
-        Collider[] hitColliders = Physics.OverlapSphere(transform.position, grabRadius);
+        Collider[] hitColliders = Physics.OverlapSphere(
+            transform.position,
+            grabRadius,
+            grabPointLayer,
+            QueryTriggerInteraction.Collide
+        );
 
         GrabPoint closestPoint = null;
         float closestDistance = Mathf.Infinity;
 
-        foreach (var col in hitColliders)
+        foreach (Collider col in hitColliders)
         {
             GrabPoint point = col.GetComponent<GrabPoint>();
-            // [💥 핵심 수정]: point.occupied 조건을 완전히 삭제하여, 다른 손이 잡고 있든 말든 무조건 탐색합니다!
-            if (point != null)
-            {
-                // 내 주먹이나 몸뚱이를 잡는 예외 처리
-                if (point.transform.IsChildOf(transform.root)) continue;
+            if (point == null) point = col.GetComponentInParent<GrabPoint>();
 
-                float dist = Vector3.Distance(transform.position, point.transform.position);
-                if (dist < closestDistance)
-                {
-                    closestDistance = dist;
-                    closestPoint = point;
-                }
+            if (point == null) continue;
+
+            float dist = Vector3.Distance(transform.position, point.transform.position);
+
+            if (dist < closestDistance)
+            {
+                closestDistance = dist;
+                closestPoint = point;
             }
         }
 
-        // 주변에 잡을 게 없으면 취소
-        if (closestPoint == null) return;
+        if (closestPoint == null)
+        {
+            Debug.LogWarning($"❌ {gameObject.name} 주변에 GrabPoint 없음");
+            return;
+        }
 
-        // 최종 그랩 성공 처리
         grabbedPoint = closestPoint;
         isGrabbing = true;
+
+        if (ClimbingManager.Instance != null)
+        {
+            ClimbingManager.Instance.SetActiveHand(this);
+        }
 
         targetPointName = grabbedPoint.gameObject.name;
         previousHandWorldPos = transform.position;
 
-        // 이 로그가 안 뜰 수가 없습니다!
-        Debug.LogWarning($"🎯 [그랩 성공 로그] {gameObject.name}이 [{targetPointName}]을 완벽하게 붙잡았습니다!");
+        PlayGrabHaptic();
+
+        Debug.LogWarning($"🎯 {gameObject.name}이 [{targetPointName}] 그랩 성공");
     }
 
     public void Release()
@@ -135,11 +162,39 @@ public class ClimbingHand : MonoBehaviour
 
         grabbedPoint = null;
         targetPointName = "";
+
+        if (ClimbingManager.Instance != null &&
+            ClimbingManager.Instance.activeHand == this)
+        {
+            if (handType == HandType.Left &&
+                ClimbingManager.Instance.rightHand != null &&
+                ClimbingManager.Instance.rightHand.isGrabbing)
+            {
+                ClimbingManager.Instance.SetActiveHand(ClimbingManager.Instance.rightHand);
+            }
+            else if (handType == HandType.Right &&
+                     ClimbingManager.Instance.leftHand != null &&
+                     ClimbingManager.Instance.leftHand.isGrabbing)
+            {
+                ClimbingManager.Instance.SetActiveHand(ClimbingManager.Instance.leftHand);
+            }
+            else
+            {
+                ClimbingManager.Instance.SetActiveHand(null);
+            }
+        }
     }
 
-    private void OnDrawGizmosSelected()
+    private void PlayGrabHaptic()
     {
-        Gizmos.color = Color.green;
-        Gizmos.DrawWireSphere(transform.position, grabRadius);
+        if (!useHaptics) return;
+
+        XRNode node = handType == HandType.Left ? XRNode.LeftHand : XRNode.RightHand;
+        UnityEngine.XR.InputDevice device = InputDevices.GetDeviceAtXRNode(node);
+
+        if (device.isValid)
+        {
+            device.SendHapticImpulse(0u, hapticAmplitude, hapticDuration);
+        }
     }
 }

@@ -1,25 +1,21 @@
-using UnityEngine;
+ï»¿using UnityEngine;
 using System.Collections.Generic;
 
 public class HandGrabDetector : MonoBehaviour
 {
-    // ÇöÀç ³» ¼Õ ÁÖº¯¿¡ ´ê¾ÆÀÖ´Â ¸ðµç ±×·¦ Æ÷ÀÎÆ®µéÀ» ´ã¾ÆµÎ´Â ¸®½ºÆ®
     private List<GrabPoint> overlappedPoints = new List<GrabPoint>();
 
-    // ClimbingHand°¡ ÃÖÁ¾ÀûÀ¸·Î "Áö±Ý ÀâÀ» Å¸°Ù"À¸·Î °¡Á®°¥ ÇÁ·ÎÆÛÆ¼
     public GrabPoint currentPoint
     {
         get
         {
             if (overlappedPoints.Count == 0) return null;
 
-            // [ÇÙ½É ·ÎÁ÷] ¸®½ºÆ®¿¡ ´ã±ä Æ÷ÀÎÆ® Áß '³» ¼Õ Áß½ÉÁ¡°ú °¡Àå °¡±î¿î' Æ÷ÀÎÆ®¸¦ Ã£¾Æ¼­ ¹ÝÈ¯ÇÕ´Ï´Ù.
             GrabPoint closestPoint = null;
             float closestDistance = Mathf.Infinity;
 
             for (int i = overlappedPoints.Count - 1; i >= 0; i--)
             {
-                // È¤½Ã ¿ÀºêÁ§Æ®°¡ ÆÄ±«µÇ¾ú°Å³ª nullÀÌ¸é ¸®½ºÆ®¿¡¼­ Á¦°Å
                 if (overlappedPoints[i] == null)
                 {
                     overlappedPoints.RemoveAt(i);
@@ -27,6 +23,7 @@ public class HandGrabDetector : MonoBehaviour
                 }
 
                 float distance = Vector3.Distance(transform.position, overlappedPoints[i].transform.position);
+
                 if (distance < closestDistance)
                 {
                     closestDistance = distance;
@@ -41,6 +38,10 @@ public class HandGrabDetector : MonoBehaviour
     void OnTriggerEnter(Collider other)
     {
         GrabPoint point = other.GetComponent<GrabPoint>();
+        if (point == null) point = other.GetComponentInParent<GrabPoint>();
+
+        Debug.LogWarning($"ðŸŸ¢ {gameObject.name} Trigger Enter: {other.gameObject.name}, GrabPoint: {point}");
+
         if (point != null && !overlappedPoints.Contains(point))
         {
             overlappedPoints.Add(point);
@@ -50,13 +51,16 @@ public class HandGrabDetector : MonoBehaviour
     void OnTriggerExit(Collider other)
     {
         GrabPoint point = other.GetComponent<GrabPoint>();
+        if (point == null) point = other.GetComponentInParent<GrabPoint>();
+
+        Debug.LogWarning($"ðŸ”´ {gameObject.name} Trigger Exit: {other.gameObject.name}, GrabPoint: {point}");
+
         if (point != null && overlappedPoints.Contains(point))
         {
             overlappedPoints.Remove(point);
         }
     }
 
-    // ¼ÕÀ» ³õ°Å³ª ±×·¦ÇÒ ¶§ ¸®½ºÆ®¸¦ ±ò²ûÇÏ°Ô ºñ¿öÁÖ´Â ÃÊ±âÈ­ ÇÔ¼ö
     public void ClearCache()
     {
         overlappedPoints.Clear();

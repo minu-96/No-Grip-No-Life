@@ -15,9 +15,60 @@ public class ClimbRespawnManager : MonoBehaviour
     public float gravity = 9.81f;
 
     [Header("리스폰 설정")]
-    public float respawnDelay = 3.0f;
+    [Tooltip("낙하 상태가 된 뒤 몇 초 후 페이드 아웃/리스폰을 시작할지 결정합니다.")]
+    public float respawnDelay = 0.3f;
+
     [Tooltip("이 Y축 높이 이하로 추락하면 즉시 리스폰시킵니다.")]
     public float deathYThreshold = -30f;
+
+    [Header("Checkpoint Detection")]
+    [Tooltip("Detects Checkpoint tags in this radius even if trigger events are missed.")]
+    public float checkpointDetectionRadius = 1.0f;
+
+    [Tooltip("Detects RespawnPoint objects in this horizontal radius.")]
+    public float respawnPointDetectionRadius = 5.0f;
+
+    [Tooltip("How high above a checkpoint to start searching for a safe respawn floor.")]
+    public float checkpointGroundSearchHeight = 3.0f;
+
+    [Tooltip("How far below a checkpoint to search for a safe respawn floor.")]
+    public float checkpointGroundSearchDepth = 8.0f;
+
+    [Tooltip("Extra distance used to detect and snap onto ground below the player.")]
+    public float groundSnapDistance = 0.5f;
+
+    [Tooltip("Keep the CharacterController centered on the checkpoint instead of applying room-scale camera XZ offset.")]
+    public bool centerControllerOnCheckpoint = true;
+
+    [Tooltip("Allows a lower checkpoint to replace the current checkpoint.")]
+    public bool allowLowerCheckpointOverride = false;
+
+    [Tooltip("A lower checkpoint must be this much higher than the current one to be accepted when lower overrides are disabled.")]
+    public float checkpointHeightTolerance = 0.5f;
+
+    [Tooltip("Logs ignored lower checkpoints. Useful only while debugging checkpoint order.")]
+    public bool logIgnoredLowerCheckpoints = false;
+
+    [Tooltip("Seconds to ignore checkpoint changes and fall respawn checks after respawning.")]
+    public float postRespawnGraceTime = 3.0f;
+
+    [Tooltip("Seconds to keep gravity disabled after respawning at an explicit RespawnPoint.")]
+    public float explicitRespawnGravityPause = 3.0f;
+
+    [Tooltip("Keeps gravity disabled at explicit RespawnPoints until the player grabs again.")]
+    public bool holdAtExplicitRespawnUntilGrab = true;
+
+    [Tooltip("Keeps the CharacterController capsule under the XR camera.")]
+    public bool alignCharacterControllerWithCamera = true;
+
+    [Tooltip("Camera-based ground check distance used before applying custom gravity.")]
+    public float cameraGroundedDistance = 2.0f;
+
+    [Header("페이드 설정")]
+    [Tooltip("XR 카메라 앞에 붙인 FadeQuad의 Mesh Renderer를 연결하세요.")]
+    public Renderer fadeRenderer;
+    public float fadeOutDuration = 0.25f;
+    public float fadeInDuration = 0.35f;
 
     [Header("클라이밍 배율")]
     public float climbMultiplier = 1.0f;
@@ -29,9 +80,23 @@ public class ClimbRespawnManager : MonoBehaviour
     private ClimbingHand activeHand;
     private Vector3 fallVelocity;
     private Vector3 lastCheckpointPos;
+    private Transform lastCheckpointRoot;
+    private string lastCheckpointSpawnSource = "";
+    private bool lastSpawnPositionIsExplicit;
     private bool isRespawning = false;
     private bool isClimbing = false;
     private Coroutine respawnCoroutine;
+    private Coroutine safeRespawnCoroutine;
+    private Material fadeMaterial;
+    private readonly Collider[] checkpointHits = new Collider[16];
+    private Collider[] checkpointColliders;
+    private Transform[] respawnPoints;
+    private Vector3 lastCheckpointProbePosition;
+    private bool hasCheckpointProbePosition;
+    private float ignoreCheckpointUntilTime;
+    private float ignoreRespawnUntilTime;
+    private float pauseGravityUntilTime;
+    private bool holdingAtExplicitRespawn;
 
     void Start()
     {
@@ -46,16 +111,47 @@ public class ClimbRespawnManager : MonoBehaviour
 
         if (xrOrigin == null || characterController == null || locomotionMediator == null)
         {
-            Debug.LogError("[ClimbProvider] 필수 컴포넌트를 찾을 수 없습니다!");
+            Debug.LogError("[ClimbRespawnManager] 필수 컴포넌트를 찾을 수 없습니다!");
             enabled = false;
             return;
         }
 
+        if (fadeRenderer != null)
+        {
+            fadeMaterial = fadeRenderer.material;
+            SetFadeAlpha(0f);
+        }
+        else
+        {
+            Debug.LogWarning("[ClimbRespawnManager] Fade Renderer가 연결되지 않았습니다. 페이드 없이 리스폰됩니다.");
+        }
+
         lastCheckpointPos = xrOrigin.transform.position;
+        RefreshCheckpointColliders();
+        RefreshRespawnPoints();
     }
 
     void Update()
     {
+        if (holdingAtExplicitRespawn)
+        {
+            if (GetCurrentHand() == null)
+            {
+                MovePlayerToWorldLocation(lastCheckpointPos);
+                AlignCharacterControllerToCamera();
+                fallVelocity = Vector3.zero;
+            }
+            else
+            {
+                holdingAtExplicitRespawn = false;
+            }
+        }
+
+        if (!holdingAtExplicitRespawn && Time.time >= ignoreCheckpointUntilTime)
+        {
+            DetectCheckpointNearby();
+        }
+
         ClimbingHand newHand = GetCurrentHand();
 
         if (newHand != null)
@@ -67,6 +163,7 @@ public class ClimbRespawnManager : MonoBehaviour
                 fallVelocity = Vector3.zero;
                 StopRespawn();
             }
+
             PerformClimb();
         }
         else
@@ -75,6 +172,7 @@ public class ClimbRespawnManager : MonoBehaviour
             {
                 isClimbing = false;
                 activeHand = null;
+                fallVelocity = Vector3.zero;
             }
 
             if (useGravity)
@@ -83,7 +181,8 @@ public class ClimbRespawnManager : MonoBehaviour
             }
         }
 
-        if (xrOrigin.transform.position.y < deathYThreshold)
+        float playerHeight = xrOrigin.Camera != null ? xrOrigin.Camera.transform.position.y : xrOrigin.transform.position.y;
+        if (!isRespawning && Time.time >= ignoreRespawnUntilTime && playerHeight < deathYThreshold)
         {
             ResetToSafety();
         }
@@ -97,94 +196,249 @@ public class ClimbRespawnManager : MonoBehaviour
         return null;
     }
 
-    void PerformClimb() { }
+    void PerformClimb()
+    {
+        // 실제 클라이밍 이동은 ClimbingHand에서 xrOrigin을 이동시키고 있으므로 비워둡니다.
+    }
 
     void ApplyGravity()
     {
-        if (characterController == null || !characterController.enabled) return;
+        if (characterController == null) return;
+        if (safeRespawnCoroutine != null) return;
+        if (holdingAtExplicitRespawn)
+        {
+            if (GetCurrentHand() == null)
+            {
+                fallVelocity = Vector3.zero;
+                StopRespawn();
+                return;
+            }
 
-        if (characterController.isGrounded)
+            holdingAtExplicitRespawn = false;
+        }
+
+        if (Time.time < ignoreRespawnUntilTime) return;
+        if (Time.time < pauseGravityUntilTime) return;
+
+        AlignCharacterControllerToCamera();
+
+        if (IsCameraNearGround())
         {
             fallVelocity = Vector3.zero;
             StopRespawn();
+            return;
         }
-        else
+
+        if (!characterController.enabled)
         {
-            fallVelocity.y -= gravity * Time.deltaTime;
+            characterController.enabled = true;
+            Physics.SyncTransforms();
+        }
 
-            // 기존의 누적된 속도로 이동시킵니다.
-            characterController.Move(fallVelocity * Time.deltaTime);
+        if (TrySnapToGround())
+        {
+            fallVelocity = Vector3.zero;
+            StopRespawn();
+            return;
+        }
 
-            if (!isRespawning && respawnCoroutine == null)
-            {
-                respawnCoroutine = StartCoroutine(RespawnAfterDelay());
-            }
+        CollisionFlags groundProbe = characterController.Move(Vector3.down * 0.02f);
+
+        if ((groundProbe & CollisionFlags.Below) != 0)
+        {
+            fallVelocity = Vector3.zero;
+            StopRespawn();
+            return;
+        }
+
+        fallVelocity.y -= gravity * Time.deltaTime;
+
+        CollisionFlags fallCollision = characterController.Move(fallVelocity * Time.deltaTime);
+
+        if ((fallCollision & CollisionFlags.Below) != 0)
+        {
+            fallVelocity = Vector3.zero;
+            StopRespawn();
+            TrySnapToGround();
+            return;
+        }
+
+        if (!isRespawning && respawnCoroutine == null)
+        {
+            respawnCoroutine = StartCoroutine(RespawnAfterDelay());
         }
     }
 
     IEnumerator RespawnAfterDelay()
     {
         isRespawning = true;
+
         yield return new WaitForSeconds(respawnDelay);
+
+        respawnCoroutine = null;
 
         if (!isClimbing && GetCurrentHand() == null)
         {
-            ResetToSafety();
+            StartSafeRespawn();
         }
-
-        isRespawning = false;
-        respawnCoroutine = null;
+        else
+        {
+            isRespawning = false;
+        }
     }
 
-    // [중요 수정] 리스폰 연산을 안전한 코루틴 방식으로 위임하여 실행합니다.
     public void ResetToSafety()
     {
-        // 이미 관통 버그가 일어나는 중일 수 있으므로 중복 실행 방지 및 속도 즉시 절단
         fallVelocity = Vector3.zero;
+        StartSafeRespawn();
+    }
 
-        if (this.gameObject.activeInHierarchy)
+    private void StartSafeRespawn()
+    {
+        if (safeRespawnCoroutine != null) return;
+
+        if (gameObject.activeInHierarchy)
         {
-            StartCoroutine(SafeRespawnRoutine());
+            ReleaseHandsForRespawn();
+
+            if (lastCheckpointRoot == null)
+            {
+                SelectBestRespawnPointForCurrentPosition();
+            }
+
+            isRespawning = true;
+            safeRespawnCoroutine = StartCoroutine(SafeRespawnRoutine());
         }
     }
 
-    // 바닥 관통 무한 낙하를 물리적으로 치료하는 정석 루틴
+    private void ReleaseHandsForRespawn()
+    {
+        if (leftHand != null && leftHand.isGrabbing) leftHand.Release();
+        if (rightHand != null && rightHand.isGrabbing) rightHand.Release();
+
+        if (ClimbingManager.Instance != null)
+        {
+            ClimbingManager.Instance.SetActiveHand(null);
+        }
+
+        activeHand = null;
+        isClimbing = false;
+    }
+
     private IEnumerator SafeRespawnRoutine()
     {
-        // 1. 추락 속도와 관성 데이터를 완전히 0으로 지워버립니다.
         fallVelocity = Vector3.zero;
 
-        // 2. VR 카메라 오프셋 정밀 계산
-        Vector3 cameraOffset = xrOrigin.Camera.transform.position - xrOrigin.transform.position;
-        cameraOffset.y = 0;
-        Vector3 targetSpawnPos = lastCheckpointPos - cameraOffset;
+        if (fadeRenderer != null)
+        {
+            yield return Fade(0f, 1f, fadeOutDuration);
+            yield return new WaitForSecondsRealtime(0.2f);
+        }
 
-        // 바닥 콜라이더와 정확히 겹쳐서 튕기는 걸 막기 위해 공중으로 살짝(0.5m) 띄웁니다.
-        targetSpawnPos.y += 0.5f;
+        Vector3 rawSpawnPos = lastCheckpointPos;
+        bool explicitSpawnPoint = lastSpawnPositionIsExplicit || IsRespawnPointName(lastCheckpointSpawnSource);
+        Vector3 targetSpawnPos = centerControllerOnCheckpoint
+            ? rawSpawnPos
+            : rawSpawnPos - GetCameraPlanarOffset();
 
-        // 3. 캐릭터 컨트롤러를 끄고 순간이동 시킵니다.
-        if (characterController != null) characterController.enabled = false;
+        if (!explicitSpawnPoint)
+        {
+            targetSpawnPos = ResolveSafeSpawnPosition(targetSpawnPos);
+        }
 
-        xrOrigin.transform.position = targetSpawnPos;
+        if (characterController != null)
+        {
+            characterController.enabled = false;
+        }
 
-        // 4. [★가장 중요] 유니티 물리 엔진에 "이 녀석 여기로 이동했으니 물리 캐시 다 갱신해!"라고 강제 명령합니다.
+        MovePlayerToWorldLocation(targetSpawnPos);
+        AlignCharacterControllerToCamera();
+
         Physics.SyncTransforms();
+        hasCheckpointProbePosition = false;
+        ignoreCheckpointUntilTime = Time.time + postRespawnGraceTime;
+        ignoreRespawnUntilTime = Time.time + postRespawnGraceTime;
+        if (explicitSpawnPoint)
+        {
+            pauseGravityUntilTime = Time.time + explicitRespawnGravityPause;
+            holdingAtExplicitRespawn = holdAtExplicitRespawnUntilGrab;
+        }
 
-        // 5. 딱 1프레임 동안 컨트롤러가 꺼진 상태로 대기합니다. (물리 잔상 소멸 시간)
         yield return new WaitForEndOfFrame();
 
-        // 6. 가속도가 완전히 증발한 깨끗한 상태에서 컨트롤러를 다시 켜줍니다.
-        if (characterController != null) characterController.enabled = true;
+        MovePlayerToWorldLocation(targetSpawnPos);
+        AlignCharacterControllerToCamera();
+        Physics.SyncTransforms();
 
-        // 7. 스태미나 충전 및 리스폰 종료
+        if (characterController != null)
+        {
+            characterController.enabled = true;
+            if (!explicitSpawnPoint)
+            {
+                TrySnapToGround();
+            }
+        }
+
         StaminaManager stamina = FindObjectOfType<StaminaManager>();
         if (stamina != null)
         {
             stamina.currentStamina = stamina.maxStamina;
         }
 
-        StopRespawn();
-        Debug.LogWarning("🏁 [완벽 부활] 추락 관성을 완전히 제거하고 체크포인트 지상에 안전하게 착지시켰습니다.");
+        fallVelocity = Vector3.zero;
+
+        if (fadeRenderer != null)
+        {
+            yield return new WaitForSecondsRealtime(0.2f);
+            yield return Fade(1f, 0f, fadeInDuration);
+        }
+
+        MovePlayerToWorldLocation(targetSpawnPos);
+        AlignCharacterControllerToCamera();
+        Physics.SyncTransforms();
+
+        isRespawning = false;
+        safeRespawnCoroutine = null;
+
+        Debug.LogWarning($"🏁 [완벽 부활] VR 페이드 후 체크포인트로 안전하게 복귀했습니다. target={targetSpawnPos}, actualXROrigin={xrOrigin.transform.position}, actualOriginBase={(xrOrigin.Origin != null ? xrOrigin.Origin.transform.position : Vector3.zero)}, actualCamera={(xrOrigin.Camera != null ? xrOrigin.Camera.transform.position : Vector3.zero)}, checkpoint={lastCheckpointRoot?.name}, source={lastCheckpointSpawnSource}");
+    }
+
+    private IEnumerator Fade(float from, float to, float duration)
+    {
+        if (fadeRenderer == null)
+        {
+            Debug.LogError("[ClimbRespawnManager] Fade Renderer가 연결되지 않았습니다!");
+            yield break;
+        }
+
+        if (fadeMaterial == null)
+        {
+            fadeMaterial = fadeRenderer.material;
+        }
+
+        float time = 0f;
+        SetFadeAlpha(from);
+
+        while (time < duration)
+        {
+            time += Time.unscaledDeltaTime;
+            float t = Mathf.Clamp01(time / duration);
+            SetFadeAlpha(Mathf.Lerp(from, to, t));
+            yield return null;
+        }
+
+        SetFadeAlpha(to);
+    }
+
+    private void SetFadeAlpha(float alpha)
+    {
+        if (fadeMaterial == null) return;
+
+        Color color = fadeMaterial.color;
+        color.a = alpha;
+        fadeMaterial.color = color;
+
+        fadeRenderer.enabled = alpha > 0.001f;
     }
 
     void StopRespawn()
@@ -194,15 +448,556 @@ public class ClimbRespawnManager : MonoBehaviour
             StopCoroutine(respawnCoroutine);
             respawnCoroutine = null;
         }
-        isRespawning = false;
+
+        if (safeRespawnCoroutine == null)
+        {
+            isRespawning = false;
+        }
     }
 
     private void OnTriggerEnter(Collider other)
     {
+        if (Time.time < ignoreCheckpointUntilTime) return;
+
         if (other.CompareTag("Checkpoint"))
         {
-            lastCheckpointPos = other.transform.position;
-            Debug.Log($"📍 새로운 체크포인트 등록: {other.gameObject.name}");
+            if (SetCheckpoint(other))
+            {
+                Debug.Log($"📍 새로운 체크포인트 등록: {other.gameObject.name}");
+            }
         }
+    }
+
+    private void DetectCheckpointNearby()
+    {
+        Vector3 probePosition = characterController != null
+            ? characterController.bounds.center
+            : xrOrigin.transform.position;
+
+        DetectRespawnPointNearby(probePosition);
+        DetectCheckpointByFootPosition(probePosition);
+
+        if (!hasCheckpointProbePosition)
+        {
+            lastCheckpointProbePosition = probePosition;
+            hasCheckpointProbePosition = true;
+        }
+
+        int hitCount = Physics.OverlapCapsuleNonAlloc(
+            lastCheckpointProbePosition,
+            probePosition,
+            Mathf.Max(checkpointDetectionRadius, 0.1f),
+            checkpointHits,
+            ~0,
+            QueryTriggerInteraction.Collide);
+
+        lastCheckpointProbePosition = probePosition;
+
+        Collider nearestCheckpoint = null;
+        float nearestDistance = float.MaxValue;
+
+        for (int i = 0; i < hitCount; i++)
+        {
+            Collider hit = checkpointHits[i];
+            checkpointHits[i] = null;
+
+            if (hit == null || !hit.CompareTag("Checkpoint")) continue;
+
+            Vector3 closestPoint = hit.ClosestPoint(probePosition);
+            float distance = (closestPoint - probePosition).sqrMagnitude;
+            if (distance < nearestDistance)
+            {
+                nearestDistance = distance;
+                nearestCheckpoint = hit;
+            }
+        }
+
+        if (nearestCheckpoint != null)
+        {
+            SetCheckpoint(nearestCheckpoint);
+        }
+    }
+
+    private void DetectCheckpointByFootPosition(Vector3 probePosition)
+    {
+        if (checkpointColliders == null || checkpointColliders.Length == 0)
+        {
+            RefreshCheckpointColliders();
+        }
+
+        if (checkpointColliders == null) return;
+
+        Vector3 footPosition;
+        if (characterController != null)
+        {
+            Bounds controllerBounds = characterController.bounds;
+            footPosition = new Vector3(controllerBounds.center.x, controllerBounds.min.y, controllerBounds.center.z);
+        }
+        else
+        {
+            footPosition = xrOrigin.transform.position;
+        }
+
+        Collider bestCheckpoint = null;
+        float bestDistance = float.MaxValue;
+
+        for (int i = 0; i < checkpointColliders.Length; i++)
+        {
+            Collider checkpoint = checkpointColliders[i];
+            if (checkpoint == null || !checkpoint.CompareTag("Checkpoint")) continue;
+
+            Bounds bounds = checkpoint.bounds;
+            float horizontalPadding = Mathf.Max(checkpointDetectionRadius, characterController != null ? characterController.radius : 0.5f);
+            float minX = bounds.min.x - horizontalPadding;
+            float maxX = bounds.max.x + horizontalPadding;
+            float minZ = bounds.min.z - horizontalPadding;
+            float maxZ = bounds.max.z + horizontalPadding;
+            float minY = bounds.min.y - groundSnapDistance;
+            float maxY = bounds.max.y + Mathf.Max(checkpointDetectionRadius, 1.5f);
+
+            if (footPosition.x < minX || footPosition.x > maxX) continue;
+            if (footPosition.z < minZ || footPosition.z > maxZ) continue;
+            if (footPosition.y < minY || footPosition.y > maxY) continue;
+
+            Vector3 closestPoint = bounds.ClosestPoint(footPosition);
+            float distance = (closestPoint - footPosition).sqrMagnitude;
+            if (distance < bestDistance)
+            {
+                bestDistance = distance;
+                bestCheckpoint = checkpoint;
+            }
+        }
+
+        if (bestCheckpoint != null)
+        {
+            SetCheckpoint(bestCheckpoint);
+        }
+    }
+
+    private void RefreshCheckpointColliders()
+    {
+        GameObject[] checkpointObjects = GameObject.FindGameObjectsWithTag("Checkpoint");
+        checkpointColliders = new Collider[checkpointObjects.Length];
+
+        for (int i = 0; i < checkpointObjects.Length; i++)
+        {
+            checkpointColliders[i] = checkpointObjects[i].GetComponent<Collider>();
+        }
+    }
+
+    private void DetectRespawnPointNearby(Vector3 probePosition)
+    {
+        if (respawnPoints == null || respawnPoints.Length == 0)
+        {
+            RefreshRespawnPoints();
+        }
+
+        if (respawnPoints == null || respawnPoints.Length == 0) return;
+
+        Transform bestRespawnPoint = null;
+        float bestDistance = float.MaxValue;
+        float maxDistance = Mathf.Max(respawnPointDetectionRadius, 1.5f);
+        float maxDistanceSqr = maxDistance * maxDistance;
+
+        for (int i = 0; i < respawnPoints.Length; i++)
+        {
+            Transform respawnPoint = respawnPoints[i];
+            if (respawnPoint == null) continue;
+
+            Vector3 delta = respawnPoint.position - probePosition;
+            delta.y = 0f;
+            float distance = delta.sqrMagnitude;
+            if (distance > maxDistanceSqr || distance >= bestDistance) continue;
+
+            bestDistance = distance;
+            bestRespawnPoint = respawnPoint;
+        }
+
+        if (bestRespawnPoint != null)
+        {
+            SetCheckpoint(bestRespawnPoint);
+        }
+    }
+
+    private void SelectBestRespawnPointForCurrentPosition()
+    {
+        if (lastCheckpointRoot != null) return;
+
+        Transform bestRespawnPoint = FindNearestRespawnPointByHorizontalDistance();
+        if (bestRespawnPoint != null)
+        {
+            SetCheckpoint(bestRespawnPoint, true);
+        }
+    }
+
+    private Vector3 GetBestRespawnPositionForCurrentLocation(out bool explicitSpawnPoint)
+    {
+        Transform bestRespawnPoint = FindNearestRespawnPointByHorizontalDistance();
+        if (bestRespawnPoint == null)
+        {
+            explicitSpawnPoint = lastSpawnPositionIsExplicit;
+            return lastCheckpointPos;
+        }
+
+        SetCheckpoint(bestRespawnPoint, true);
+        explicitSpawnPoint = true;
+        return bestRespawnPoint.position;
+    }
+
+    private Transform FindNearestRespawnPointByHorizontalDistance()
+    {
+        if (respawnPoints == null || respawnPoints.Length == 0)
+        {
+            RefreshRespawnPoints();
+        }
+
+        if (respawnPoints == null || respawnPoints.Length == 0) return null;
+
+        Vector3 playerPosition = xrOrigin.Camera != null
+            ? xrOrigin.Camera.transform.position
+            : xrOrigin.transform.position;
+
+        Transform bestRespawnPoint = null;
+        float bestDistance = float.MaxValue;
+
+        for (int i = 0; i < respawnPoints.Length; i++)
+        {
+            Transform respawnPoint = respawnPoints[i];
+            if (respawnPoint == null) continue;
+
+            Vector3 delta = respawnPoint.position - playerPosition;
+            delta.y = 0f;
+            float distance = delta.sqrMagnitude;
+            if (distance >= bestDistance) continue;
+
+            bestDistance = distance;
+            bestRespawnPoint = respawnPoint;
+        }
+
+        return bestRespawnPoint;
+    }
+
+    private void RefreshRespawnPoints()
+    {
+        Transform[] sceneTransforms = FindObjectsOfType<Transform>();
+        System.Collections.Generic.List<Transform> foundRespawnPoints = new System.Collections.Generic.List<Transform>();
+
+        for (int i = 0; i < sceneTransforms.Length; i++)
+        {
+            Transform sceneTransform = sceneTransforms[i];
+            if (IsRespawnPointName(sceneTransform.name))
+            {
+                foundRespawnPoints.Add(sceneTransform);
+            }
+        }
+
+        respawnPoints = foundRespawnPoints.ToArray();
+
+        Debug.Log($"[ClimbRespawnManager] Found {respawnPoints.Length} RespawnPoint object(s): {GetRespawnPointSummary()}");
+    }
+
+    private string GetRespawnPointSummary()
+    {
+        if (respawnPoints == null || respawnPoints.Length == 0) return "none";
+
+        System.Text.StringBuilder summary = new System.Text.StringBuilder();
+        for (int i = 0; i < respawnPoints.Length; i++)
+        {
+            Transform respawnPoint = respawnPoints[i];
+            if (respawnPoint == null) continue;
+
+            if (summary.Length > 0) summary.Append(", ");
+            summary.Append(respawnPoint.name);
+            summary.Append("=");
+            summary.Append(respawnPoint.position);
+        }
+
+        return summary.ToString();
+    }
+
+    private bool SetCheckpoint(Collider checkpoint)
+    {
+        Transform checkpointRoot = checkpoint.transform.parent != null
+            ? checkpoint.transform.parent
+            : checkpoint.transform;
+
+        Vector3 checkpointPos = GetCheckpointSpawnCenter(checkpointRoot, checkpoint, out string spawnSource);
+        if (!CanAcceptCheckpoint(checkpointPos, false))
+        {
+            if (logIgnoredLowerCheckpoints)
+            {
+                Debug.Log($"[ClimbRespawnManager] Ignored lower checkpoint: {checkpointRoot.name} at {checkpointPos}");
+            }
+
+            return false;
+        }
+
+        bool checkpointChanged = lastCheckpointRoot != checkpointRoot;
+        bool spawnChanged = (lastCheckpointPos - checkpointPos).sqrMagnitude > 0.0001f || lastCheckpointSpawnSource != spawnSource;
+
+        lastCheckpointRoot = checkpointRoot;
+        lastCheckpointPos = checkpointPos;
+        lastCheckpointSpawnSource = spawnSource;
+        lastSpawnPositionIsExplicit = IsRespawnPointName(spawnSource);
+
+        if (checkpointChanged || spawnChanged)
+        {
+            Debug.Log($"[ClimbRespawnManager] Checkpoint saved: {checkpointRoot.name} at {lastCheckpointPos} ({spawnSource})");
+        }
+
+        return true;
+    }
+
+    private bool SetCheckpoint(Transform respawnPoint, bool force = false)
+    {
+        Transform checkpointRoot = respawnPoint.parent != null
+            ? respawnPoint.parent
+            : respawnPoint;
+
+        Vector3 checkpointPos = respawnPoint.position;
+        if (!CanAcceptCheckpoint(checkpointPos, force))
+        {
+            if (logIgnoredLowerCheckpoints)
+            {
+                Debug.Log($"[ClimbRespawnManager] Ignored lower respawn point: {respawnPoint.name} at {checkpointPos}");
+            }
+
+            return false;
+        }
+
+        bool checkpointChanged = lastCheckpointRoot != checkpointRoot;
+        bool spawnChanged = (lastCheckpointPos - checkpointPos).sqrMagnitude > 0.0001f || lastCheckpointSpawnSource != respawnPoint.name;
+
+        lastCheckpointRoot = checkpointRoot;
+        lastCheckpointPos = checkpointPos;
+        lastCheckpointSpawnSource = respawnPoint.name;
+        lastSpawnPositionIsExplicit = true;
+
+        if (checkpointChanged || spawnChanged)
+        {
+            string forcedText = force ? ", forced" : "";
+            Debug.Log($"[ClimbRespawnManager] Checkpoint saved: {checkpointRoot.name} at {lastCheckpointPos} ({respawnPoint.name}{forcedText})");
+        }
+
+        return true;
+    }
+
+    private bool CanAcceptCheckpoint(Vector3 checkpointPos, bool force)
+    {
+        if (force || allowLowerCheckpointOverride) return true;
+        if (checkpointPos.y >= lastCheckpointPos.y - checkpointHeightTolerance) return true;
+
+        return IsPlayerStablyGrounded();
+    }
+
+    private bool IsPlayerStablyGrounded()
+    {
+        if (isRespawning || safeRespawnCoroutine != null) return false;
+        if (characterController == null || !characterController.enabled) return false;
+        if (characterController.isGrounded) return true;
+
+        return TryFindGroundBelow(out _);
+    }
+
+    private Vector3 GetCheckpointSpawnCenter(Transform checkpointRoot, Collider checkpointTrigger, out string spawnSource)
+    {
+        Transform explicitSpawnPoint = FindCheckpointSpawnPoint(checkpointRoot);
+        if (explicitSpawnPoint != null)
+        {
+            spawnSource = explicitSpawnPoint.name;
+            return explicitSpawnPoint.position;
+        }
+
+        Renderer rootRenderer = checkpointRoot.GetComponent<Renderer>();
+        if (rootRenderer != null)
+        {
+            spawnSource = "Renderer.bounds.center";
+            return rootRenderer.bounds.center;
+        }
+
+        MeshFilter rootMesh = checkpointRoot.GetComponent<MeshFilter>();
+        if (rootMesh != null && rootMesh.sharedMesh != null)
+        {
+            spawnSource = "Mesh.bounds.center";
+            return checkpointRoot.TransformPoint(rootMesh.sharedMesh.bounds.center);
+        }
+
+        Collider rootCollider = checkpointRoot.GetComponent<Collider>();
+        if (rootCollider != null)
+        {
+            spawnSource = "Collider.bounds.center";
+            return rootCollider.bounds.center;
+        }
+
+        spawnSource = "Trigger.bounds.center";
+        return checkpointTrigger.bounds.center;
+    }
+
+    private Transform FindCheckpointSpawnPoint(Transform checkpointRoot)
+    {
+        return FindCheckpointSpawnPointRecursive(checkpointRoot);
+    }
+
+    private Transform FindCheckpointSpawnPointRecursive(Transform root)
+    {
+        for (int i = 0; i < root.childCount; i++)
+        {
+            Transform child = root.GetChild(i);
+
+            if (IsRespawnPointName(child.name))
+            {
+                return child;
+            }
+
+            Transform nestedSpawnPoint = FindCheckpointSpawnPointRecursive(child);
+            if (nestedSpawnPoint != null)
+            {
+                return nestedSpawnPoint;
+            }
+        }
+
+        return null;
+    }
+
+    private bool IsRespawnPointName(string objectName)
+    {
+        string normalizedName = objectName.Replace(" ", "").Replace("_", "").Replace("-", "").ToLowerInvariant();
+
+        return normalizedName.StartsWith("respawnpoint") ||
+            normalizedName.StartsWith("spawnpoint") ||
+            normalizedName.StartsWith("respawnposition") ||
+            normalizedName.StartsWith("spawnposition");
+    }
+
+    private Vector3 ResolveSafeSpawnPosition(Vector3 spawnPosition)
+    {
+        if (characterController == null)
+        {
+            spawnPosition.y += 0.5f;
+            return spawnPosition;
+        }
+
+        Vector3 rayOrigin = new Vector3(
+            spawnPosition.x,
+            lastCheckpointPos.y + checkpointGroundSearchHeight,
+            spawnPosition.z);
+
+        float rayDistance = checkpointGroundSearchHeight + checkpointGroundSearchDepth;
+        if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, rayDistance, ~0, QueryTriggerInteraction.Ignore))
+        {
+            float halfHeight = Mathf.Max(characterController.height * 0.5f, characterController.radius);
+            spawnPosition.y = hit.point.y + halfHeight - characterController.center.y + characterController.skinWidth + 0.05f;
+        }
+        else
+        {
+            spawnPosition.y += 1.0f;
+            Debug.LogWarning("[ClimbRespawnManager] 체크포인트 아래 바닥을 찾지 못해 기본 높이로 리스폰합니다.");
+        }
+
+        return spawnPosition;
+    }
+
+    private Vector3 GetCameraPlanarOffset()
+    {
+        if (xrOrigin.Camera == null) return Vector3.zero;
+
+        Vector3 cameraOffset = xrOrigin.Camera.transform.position - xrOrigin.transform.position;
+        cameraOffset.y = 0f;
+        return cameraOffset;
+    }
+
+    private void MovePlayerToWorldLocation(Vector3 targetWorldPosition)
+    {
+        if (xrOrigin.Camera != null)
+        {
+            xrOrigin.MoveCameraToWorldLocation(targetWorldPosition);
+            Vector3 cameraDelta = targetWorldPosition - xrOrigin.Camera.transform.position;
+            if (cameraDelta.sqrMagnitude > 0.0001f)
+            {
+                Transform originTransform = xrOrigin.Origin != null ? xrOrigin.Origin.transform : xrOrigin.transform;
+                originTransform.position += cameraDelta;
+            }
+        }
+        else
+        {
+            xrOrigin.transform.position = targetWorldPosition;
+        }
+    }
+
+    private void AlignCharacterControllerToCamera()
+    {
+        if (!alignCharacterControllerWithCamera) return;
+        if (characterController == null || xrOrigin.Camera == null) return;
+
+        Vector3 cameraLocalPosition = xrOrigin.transform.InverseTransformPoint(xrOrigin.Camera.transform.position);
+        float height = Mathf.Max(characterController.height, characterController.radius * 2f);
+
+        Vector3 center = characterController.center;
+        center.x = cameraLocalPosition.x;
+        center.y = cameraLocalPosition.y - (height * 0.5f);
+        center.z = cameraLocalPosition.z;
+        characterController.center = center;
+    }
+
+    private bool TrySnapToGround()
+    {
+        if (characterController == null || !characterController.enabled) return false;
+        if (!TryFindGroundBelow(out RaycastHit hit)) return false;
+
+        float halfHeight = Mathf.Max(characterController.height * 0.5f, characterController.radius);
+        float desiredOriginY = hit.point.y + halfHeight - characterController.center.y + characterController.skinWidth + 0.01f;
+        float deltaY = desiredOriginY - xrOrigin.transform.position.y;
+
+        if (deltaY > 0.2f || deltaY < -groundSnapDistance) return false;
+
+        characterController.enabled = false;
+        Vector3 position = xrOrigin.transform.position;
+        position.y = desiredOriginY;
+        xrOrigin.transform.position = position;
+        Physics.SyncTransforms();
+        characterController.enabled = true;
+
+        return true;
+    }
+
+    private bool IsCameraNearGround()
+    {
+        if (xrOrigin.Camera == null) return false;
+
+        Vector3 rayOrigin = xrOrigin.Camera.transform.position + Vector3.up * 0.05f;
+        if (!Physics.Raycast(
+            rayOrigin,
+            Vector3.down,
+            out RaycastHit hit,
+            cameraGroundedDistance,
+            ~0,
+            QueryTriggerInteraction.Ignore))
+        {
+            return false;
+        }
+
+        return Vector3.Angle(hit.normal, Vector3.up) <= characterController.slopeLimit;
+    }
+
+    private bool TryFindGroundBelow(out RaycastHit hit)
+    {
+        Bounds bounds = characterController.bounds;
+        Vector3 origin = bounds.center + Vector3.up * 0.05f;
+        float halfHeight = Mathf.Max(characterController.height * 0.5f, characterController.radius);
+        float distance = halfHeight + groundSnapDistance + 0.1f;
+
+        if (!Physics.SphereCast(
+            origin,
+            characterController.radius * 0.8f,
+            Vector3.down,
+            out hit,
+            distance,
+            ~0,
+            QueryTriggerInteraction.Ignore))
+        {
+            return false;
+        }
+
+        return Vector3.Angle(hit.normal, Vector3.up) <= characterController.slopeLimit;
     }
 }
