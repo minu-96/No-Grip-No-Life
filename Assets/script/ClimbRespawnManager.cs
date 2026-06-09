@@ -64,6 +64,9 @@ public class ClimbRespawnManager : MonoBehaviour
     [Tooltip("Camera-based ground check distance used before applying custom gravity.")]
     public float cameraGroundedDistance = 2.0f;
 
+    [Tooltip("Camera height above the respawn floor after resolving a safe spawn position.")]
+    public float respawnCameraHeight = 1.6f;
+
     [Header("페이드 설정")]
     [Tooltip("XR 카메라 앞에 붙인 FadeQuad의 Mesh Renderer를 연결하세요.")]
     public Renderer fadeRenderer;
@@ -137,13 +140,25 @@ public class ClimbRespawnManager : MonoBehaviour
         {
             if (GetCurrentHand() == null)
             {
-                MovePlayerToWorldLocation(lastCheckpointPos);
                 AlignCharacterControllerToCamera();
                 fallVelocity = Vector3.zero;
+
+                if (characterController != null &&
+                    characterController.enabled &&
+                    (TrySnapToGround() || IsCameraNearGround()))
+                {
+                    holdingAtExplicitRespawn = false;
+                    pauseGravityUntilTime = 0f;
+                }
+                else
+                {
+                    HoldPlayerAtExplicitRespawnHeight();
+                }
             }
             else
             {
                 holdingAtExplicitRespawn = false;
+                pauseGravityUntilTime = 0f;
             }
         }
 
@@ -175,14 +190,25 @@ public class ClimbRespawnManager : MonoBehaviour
                 fallVelocity = Vector3.zero;
             }
 
+            if (ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff())
+            {
+                fallVelocity = Vector3.zero;
+                StopRespawn();
+                return;
+            }
+
             if (useGravity)
             {
                 ApplyGravity();
             }
         }
 
+        bool isClimbingOrHandingOff = ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff();
         float playerHeight = xrOrigin.Camera != null ? xrOrigin.Camera.transform.position.y : xrOrigin.transform.position.y;
-        if (!isRespawning && Time.time >= ignoreRespawnUntilTime && playerHeight < deathYThreshold)
+        if (!isClimbingOrHandingOff &&
+            !isRespawning &&
+            Time.time >= ignoreRespawnUntilTime &&
+            playerHeight < deathYThreshold)
         {
             ResetToSafety();
         }
@@ -190,6 +216,13 @@ public class ClimbRespawnManager : MonoBehaviour
 
     ClimbingHand GetCurrentHand()
     {
+        if (ClimbingManager.Instance != null &&
+            ClimbingManager.Instance.activeHand != null &&
+            ClimbingManager.Instance.activeHand.isGrabbing)
+        {
+            return ClimbingManager.Instance.activeHand;
+        }
+
         if (activeHand != null && activeHand.isGrabbing) return activeHand;
         if (rightHand != null && rightHand.isGrabbing) return rightHand;
         if (leftHand != null && leftHand.isGrabbing) return leftHand;
@@ -277,7 +310,8 @@ public class ClimbRespawnManager : MonoBehaviour
 
         respawnCoroutine = null;
 
-        if (!isClimbing && GetCurrentHand() == null)
+        bool isClimbingOrHandingOff = ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff();
+        if (!isClimbingOrHandingOff && !isClimbing && GetCurrentHand() == null)
         {
             StartSafeRespawn();
         }
@@ -341,10 +375,8 @@ public class ClimbRespawnManager : MonoBehaviour
             ? rawSpawnPos
             : rawSpawnPos - GetCameraPlanarOffset();
 
-        if (!explicitSpawnPoint)
-        {
-            targetSpawnPos = ResolveSafeSpawnPosition(targetSpawnPos);
-        }
+        targetSpawnPos = ResolveSafeSpawnPosition(targetSpawnPos);
+        bool shouldHoldAtExplicitRespawn = false;
 
         if (characterController != null)
         {
@@ -361,7 +393,7 @@ public class ClimbRespawnManager : MonoBehaviour
         if (explicitSpawnPoint)
         {
             pauseGravityUntilTime = Time.time + explicitRespawnGravityPause;
-            holdingAtExplicitRespawn = holdAtExplicitRespawnUntilGrab;
+            holdingAtExplicitRespawn = shouldHoldAtExplicitRespawn;
         }
 
         yield return new WaitForEndOfFrame();
@@ -373,7 +405,7 @@ public class ClimbRespawnManager : MonoBehaviour
         if (characterController != null)
         {
             characterController.enabled = true;
-            if (!explicitSpawnPoint)
+            if (!shouldHoldAtExplicitRespawn)
             {
                 TrySnapToGround();
             }
@@ -396,6 +428,10 @@ public class ClimbRespawnManager : MonoBehaviour
         MovePlayerToWorldLocation(targetSpawnPos);
         AlignCharacterControllerToCamera();
         Physics.SyncTransforms();
+        if (characterController != null && characterController.enabled && !shouldHoldAtExplicitRespawn)
+        {
+            TrySnapToGround();
+        }
 
         isRespawning = false;
         safeRespawnCoroutine = null;
@@ -885,12 +921,11 @@ public class ClimbRespawnManager : MonoBehaviour
         float rayDistance = checkpointGroundSearchHeight + checkpointGroundSearchDepth;
         if (Physics.Raycast(rayOrigin, Vector3.down, out RaycastHit hit, rayDistance, ~0, QueryTriggerInteraction.Ignore))
         {
-            float halfHeight = Mathf.Max(characterController.height * 0.5f, characterController.radius);
-            spawnPosition.y = hit.point.y + halfHeight - characterController.center.y + characterController.skinWidth + 0.05f;
+            spawnPosition.y = hit.point.y + GetResolvedRespawnCameraHeight();
         }
         else
         {
-            spawnPosition.y += 1.0f;
+            spawnPosition.y += GetResolvedRespawnCameraHeight();
             Debug.LogWarning("[ClimbRespawnManager] 체크포인트 아래 바닥을 찾지 못해 기본 높이로 리스폰합니다.");
         }
 
@@ -904,6 +939,25 @@ public class ClimbRespawnManager : MonoBehaviour
         Vector3 cameraOffset = xrOrigin.Camera.transform.position - xrOrigin.transform.position;
         cameraOffset.y = 0f;
         return cameraOffset;
+    }
+
+    private float GetResolvedRespawnCameraHeight()
+    {
+        return Mathf.Max(respawnCameraHeight, characterController != null ? characterController.radius * 2f : 1.0f);
+    }
+
+    private void HoldPlayerAtExplicitRespawnHeight()
+    {
+        if (xrOrigin == null) return;
+
+        Vector3 currentPosition = xrOrigin.Camera != null
+            ? xrOrigin.Camera.transform.position
+            : xrOrigin.transform.position;
+
+        Vector3 heldPosition = new Vector3(currentPosition.x, lastCheckpointPos.y, currentPosition.z);
+        MovePlayerToWorldLocation(heldPosition);
+        AlignCharacterControllerToCamera();
+        Physics.SyncTransforms();
     }
 
     private void MovePlayerToWorldLocation(Vector3 targetWorldPosition)

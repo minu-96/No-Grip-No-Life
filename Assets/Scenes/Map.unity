@@ -3581,6 +3581,11 @@ MonoBehaviour:
     m_Reference: {fileID: -2024308242397127297, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   grabDetector: {fileID: 381296330}
   grabRadius: 0.35
+  handoffGrabRadius: 0.75
+  minGrabHoldTime: 0.25
+  releaseOnGripRelease: 0
+  releaseThreshold: 0.08
+  releaseConfirmTime: 0.2
   climbMoveMultiplier: 1
   grabPointLayer:
     serializedVersion: 2
@@ -6578,15 +6583,15 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 25.38
+      value: 18.73
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.y
-      value: 38.09
+      value: 1.72
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.z
-      value: -33.34
+      value: 8.9
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalRotation.w
@@ -6962,6 +6967,11 @@ MonoBehaviour:
     m_Reference: {fileID: -3326005586356538449, guid: c348712bda248c246b8c49b3db54643f, type: 3}
   grabDetector: {fileID: 679992498}
   grabRadius: 0.35
+  handoffGrabRadius: 0.75
+  minGrabHoldTime: 0.25
+  releaseOnGripRelease: 0
+  releaseThreshold: 0.08
+  releaseConfirmTime: 0.2
   climbMoveMultiplier: 1
   grabPointLayer:
     serializedVersion: 2
@@ -10135,6 +10145,7 @@ MonoBehaviour:
   holdAtExplicitRespawnUntilGrab: 1
   alignCharacterControllerWithCamera: 1
   cameraGroundedDistance: 3
+  respawnCameraHeight: 1.6
   fadeRenderer: {fileID: 2112702981}
   fadeOutDuration: 0.25
   fadeInDuration: 0.35

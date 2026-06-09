@@ -6,40 +6,45 @@ public class ClimbingHand : MonoBehaviour
 {
     public enum HandType { Left, Right }
 
-    [Header("손 구분 및 필수 연결")]
+    [Header("Hand")]
     public HandType handType;
     public GameObject xrOrigin;
 
-    [Header("인풋 설정")]
+    [Header("Input")]
     public InputActionProperty gripAction;
     public InputActionProperty handPositionAction;
 
-    [Header("그랩 감지")]
+    [Header("Grab Detection")]
     public HandGrabDetector grabDetector;
-
-    [Header("그랩 감지 범위 설정")]
-    [Tooltip("손 중심에서 몇 미터(m) 안의 오브젝트를 잡을지 결정 (기본 0.15 추천)")]
     public float grabRadius = 0.15f;
+    public float handoffGrabRadius = 0.75f;
+    public LayerMask grabPointLayer;
+    public float minGrabHoldTime = 0.25f;
+    public bool releaseOnGripRelease = false;
+    public float releaseThreshold = 0.08f;
+    public float releaseConfirmTime = 0.2f;
 
-    [Header("클라이밍 이동 설정")]
-    [Tooltip("손 이동량이 몸 이동에 반영되는 배율입니다. 1이면 손 이동량 그대로 반영됩니다.")]
+    [Header("Climbing")]
     public float climbMoveMultiplier = 1.0f;
 
-    [Tooltip("그랩 가능한 레이어입니다. Climbable 레이어를 선택하세요.")]
-    public LayerMask grabPointLayer;
-
-    [Header("상태 확인")]
+    [Header("State")]
     public bool isGrabbing;
     public string targetPointName;
 
-    [Header("햅틱 설정")]
+    [Header("Haptics")]
     public bool useHaptics = true;
     [Range(0f, 1f)] public float hapticAmplitude = 0.5f;
     public float hapticDuration = 0.08f;
 
     private GrabPoint grabbedPoint;
     private Vector3 previousHandWorldPos;
+    private float nextNoGrabLogTime;
+    private float ignoreReleaseUntilTime;
+    private float releaseStartedTime = -1f;
+
     private const float MOVE_DEADZONE_SQR = 0.000005f;
+    private const float GRAB_THRESHOLD = 0.7f;
+    private const float NO_GRAB_LOG_INTERVAL = 0.5f;
 
     void Start()
     {
@@ -64,24 +69,53 @@ public class ClimbingHand : MonoBehaviour
 
         if (!isGrabbing)
         {
-            if (gripValue > 0.7f) TryGrab();
+            if (gripValue > GRAB_THRESHOLD) TryGrab();
+            return;
         }
-        else
+
+        StaminaManager stamina = FindObjectOfType<StaminaManager>();
+        if (stamina != null && stamina.currentStamina <= 0f)
         {
-            StaminaManager stamina = FindObjectOfType<StaminaManager>();
-            if (stamina != null && stamina.currentStamina <= 0f)
+            Release();
+            return;
+        }
+
+        if (releaseOnGripRelease && gripValue < releaseThreshold)
+        {
+            if (Time.time < ignoreReleaseUntilTime)
+            {
+                return;
+            }
+
+            if (releaseStartedTime < 0f)
+            {
+                releaseStartedTime = Time.time;
+                return;
+            }
+
+            if (Time.time - releaseStartedTime >= releaseConfirmTime)
             {
                 Release();
                 return;
             }
-
-            if (gripValue < 0.2f) Release();
         }
+        else
+        {
+            releaseStartedTime = -1f;
+        }
+
+        TrySwitchGrabPoint();
     }
 
     void LateUpdate()
     {
         if (!isGrabbing || grabbedPoint == null || xrOrigin == null) return;
+
+        if (ClimbingManager.Instance != null)
+        {
+            ClimbingManager.Instance.SetActiveHand(this);
+            ClimbingManager.Instance.NotifyGrabStateChanged();
+        }
 
         if (ClimbingManager.Instance != null &&
             !ClimbingManager.Instance.IsActiveHand(this))
@@ -94,22 +128,64 @@ public class ClimbingHand : MonoBehaviour
 
         if (handMoveDelta.sqrMagnitude > MOVE_DEADZONE_SQR)
         {
-            xrOrigin.transform.position -= handMoveDelta;
+            xrOrigin.transform.position -= handMoveDelta * climbMoveMultiplier;
         }
 
-        previousHandWorldPos = transform.position;
+        previousHandWorldPos = currentHandWorldPos;
     }
+
     void TryGrab()
     {
         StaminaManager stamina = FindObjectOfType<StaminaManager>();
         if (stamina != null && stamina.currentStamina <= 0f) return;
 
+        GrabPoint closestPoint = FindClosestGrabPoint();
+        if (closestPoint == null)
+        {
+            LogNoGrabPointFound();
+            return;
+        }
+
+        Grab(closestPoint);
+    }
+
+    private void TrySwitchGrabPoint()
+    {
+        GrabPoint closestPoint = FindClosestGrabPoint();
+        if (closestPoint == null || closestPoint == grabbedPoint) return;
+
+        Grab(closestPoint, true);
+    }
+
+    private GrabPoint FindClosestGrabPoint()
+    {
+        if (grabDetector != null && grabDetector.currentPoint != null)
+        {
+            return grabDetector.currentPoint;
+        }
+
+        Vector3 probePosition = GetGrabProbePosition();
+        GrabPoint closestPoint = FindClosestGrabPointInRadius(probePosition, grabRadius);
+        if (closestPoint != null)
+        {
+            return closestPoint;
+        }
+
+        if (ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff())
+        {
+            return FindClosestGrabPointInRadius(probePosition, Mathf.Max(grabRadius, handoffGrabRadius));
+        }
+
+        return null;
+    }
+
+    private GrabPoint FindClosestGrabPointInRadius(Vector3 probePosition, float radius)
+    {
         Collider[] hitColliders = Physics.OverlapSphere(
-            transform.position,
-            grabRadius,
+            probePosition,
+            radius,
             grabPointLayer,
-            QueryTriggerInteraction.Collide
-        );
+            QueryTriggerInteraction.Collide);
 
         GrabPoint closestPoint = null;
         float closestDistance = Mathf.Infinity;
@@ -118,48 +194,89 @@ public class ClimbingHand : MonoBehaviour
         {
             GrabPoint point = col.GetComponent<GrabPoint>();
             if (point == null) point = col.GetComponentInParent<GrabPoint>();
-
             if (point == null) continue;
 
-            float dist = Vector3.Distance(transform.position, point.transform.position);
-
-            if (dist < closestDistance)
+            float distance = Vector3.Distance(probePosition, point.transform.position);
+            if (distance < closestDistance)
             {
-                closestDistance = dist;
+                closestDistance = distance;
                 closestPoint = point;
             }
         }
 
-        if (closestPoint == null)
-        {
-            Debug.LogWarning($"❌ {gameObject.name} 주변에 GrabPoint 없음");
-            return;
-        }
+        return closestPoint;
+    }
 
-        grabbedPoint = closestPoint;
+    private Vector3 GetGrabProbePosition()
+    {
+        return grabDetector != null ? grabDetector.transform.position : transform.position;
+    }
+
+    private void Grab(GrabPoint point, bool switched = false)
+    {
+        grabbedPoint = point;
         isGrabbing = true;
+        targetPointName = grabbedPoint.gameObject.name;
+        ReleaseOtherHand();
+        previousHandWorldPos = transform.position;
+        ignoreReleaseUntilTime = Time.time + minGrabHoldTime;
+        releaseStartedTime = -1f;
 
         if (ClimbingManager.Instance != null)
         {
             ClimbingManager.Instance.SetActiveHand(this);
+            ClimbingManager.Instance.NotifyGrabStateChanged();
         }
-
-        targetPointName = grabbedPoint.gameObject.name;
-        previousHandWorldPos = transform.position;
 
         PlayGrabHaptic();
 
-        Debug.LogWarning($"🎯 {gameObject.name}이 [{targetPointName}] 그랩 성공");
+        string action = switched ? "switched grab to" : "grabbed";
+        Debug.LogWarning($"[ClimbingHand] {gameObject.name} {action} {targetPointName}");
+    }
+
+    private void ReleaseOtherHand()
+    {
+        if (ClimbingManager.Instance == null) return;
+
+        ClimbingHand otherHand = handType == HandType.Left
+            ? ClimbingManager.Instance.rightHand
+            : ClimbingManager.Instance.leftHand;
+
+        if (otherHand != null && otherHand != this && otherHand.isGrabbing)
+        {
+            otherHand.ForceReleaseForHandoff();
+        }
+    }
+
+    public void ForceReleaseForHandoff()
+    {
+        if (!isGrabbing) return;
+
+        isGrabbing = false;
+        grabbedPoint = null;
+        targetPointName = "";
+        releaseStartedTime = -1f;
+        previousHandWorldPos = transform.position;
+        Debug.LogWarning($"[ClimbingHand] {gameObject.name} released for handoff");
+    }
+
+    private void LogNoGrabPointFound()
+    {
+        if (Time.time < nextNoGrabLogTime) return;
+
+        nextNoGrabLogTime = Time.time + NO_GRAB_LOG_INTERVAL;
+        Debug.LogWarning($"[ClimbingHand] {gameObject.name} found no GrabPoint nearby. probe={GetGrabProbePosition()}, radius={grabRadius}, handoffRadius={handoffGrabRadius}, layerMask={grabPointLayer.value}");
     }
 
     public void Release()
     {
         if (isGrabbing)
         {
-            isGrabbing = false;
-            Debug.LogWarning($"❌ [릴리즈 로그] {gameObject.name}이 손을 놓았습니다.");
+            float gripValue = gripAction.action != null ? gripAction.action.ReadValue<float>() : -1f;
+            Debug.LogWarning($"[ClimbingHand] {gameObject.name} released grab. grip={gripValue:F2}");
         }
 
+        isGrabbing = false;
         grabbedPoint = null;
         targetPointName = "";
 
@@ -182,6 +299,11 @@ public class ClimbingHand : MonoBehaviour
             {
                 ClimbingManager.Instance.SetActiveHand(null);
             }
+        }
+
+        if (ClimbingManager.Instance != null)
+        {
+            ClimbingManager.Instance.NotifyGrabStateChanged();
         }
     }
 

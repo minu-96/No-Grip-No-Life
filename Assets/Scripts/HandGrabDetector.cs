@@ -1,9 +1,9 @@
-﻿using UnityEngine;
+using UnityEngine;
 using System.Collections.Generic;
 
 public class HandGrabDetector : MonoBehaviour
 {
-    private List<GrabPoint> overlappedPoints = new List<GrabPoint>();
+    private readonly List<GrabPoint> overlappedPoints = new List<GrabPoint>();
 
     public GrabPoint currentPoint
     {
@@ -16,18 +16,18 @@ public class HandGrabDetector : MonoBehaviour
 
             for (int i = overlappedPoints.Count - 1; i >= 0; i--)
             {
-                if (overlappedPoints[i] == null)
+                GrabPoint point = overlappedPoints[i];
+                if (point == null)
                 {
                     overlappedPoints.RemoveAt(i);
                     continue;
                 }
 
-                float distance = Vector3.Distance(transform.position, overlappedPoints[i].transform.position);
-
+                float distance = Vector3.Distance(transform.position, point.transform.position);
                 if (distance < closestDistance)
                 {
                     closestDistance = distance;
-                    closestPoint = overlappedPoints[i];
+                    closestPoint = point;
                 }
             }
 
@@ -39,10 +39,11 @@ public class HandGrabDetector : MonoBehaviour
     {
         GrabPoint point = other.GetComponent<GrabPoint>();
         if (point == null) point = other.GetComponentInParent<GrabPoint>();
+        if (point == null) return;
 
-        Debug.LogWarning($"🟢 {gameObject.name} Trigger Enter: {other.gameObject.name}, GrabPoint: {point}");
+        Debug.LogWarning($"[HandGrabDetector] {gameObject.name} entered {other.gameObject.name}, grabPoint={point.gameObject.name}");
 
-        if (point != null && !overlappedPoints.Contains(point))
+        if (!overlappedPoints.Contains(point))
         {
             overlappedPoints.Add(point);
         }
@@ -52,10 +53,11 @@ public class HandGrabDetector : MonoBehaviour
     {
         GrabPoint point = other.GetComponent<GrabPoint>();
         if (point == null) point = other.GetComponentInParent<GrabPoint>();
+        if (point == null) return;
 
-        Debug.LogWarning($"🔴 {gameObject.name} Trigger Exit: {other.gameObject.name}, GrabPoint: {point}");
+        Debug.LogWarning($"[HandGrabDetector] {gameObject.name} exited {other.gameObject.name}, grabPoint={point.gameObject.name}");
 
-        if (point != null && overlappedPoints.Contains(point))
+        if (overlappedPoints.Contains(point))
         {
             overlappedPoints.Remove(point);
         }
