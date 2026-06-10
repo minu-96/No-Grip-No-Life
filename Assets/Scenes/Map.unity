@@ -449,7 +449,7 @@ Transform:
   m_GameObject: {fileID: 21900321}
   serializedVersion: 2
   m_LocalRotation: {x: -0, y: -0, z: -0, w: 1}
-  m_LocalPosition: {x: 28.6, y: 32, z: -40.74}
+  m_LocalPosition: {x: 28.6, y: 34.59, z: -40.74}
   m_LocalScale: {x: 989.25, y: 556.6706, z: 550.20026}
   m_ConstrainProportionsScale: 0
   m_Children:
@@ -9930,9 +9930,18 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ebfe1e71530aede4687b33c435735ff1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GeneratorLeverController
-  transmissionTowerName: TransmissonTower
-  transmissionTowerLights: []
-  turnLightsOffOnStart: 1
+  isActivated: 0
+  objectsToEnable: []
+  objectsToDisable: []
+  lightsToTurnOn: []
+  emissionRenderers: []
+  emissionColor: {r: 1, g: 0.92156863, b: 0.015686275, a: 1}
+  emissionIntensity: 2.5
+  audioSource: {fileID: 0}
+  activateSound: {fileID: 0}
+  onActivated:
+    m_PersistentCalls:
+      m_Calls: []
 --- !u!1001 &1190935394
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -15860,51 +15869,12 @@ SphereCollider:
     serializedVersion: 2
     m_Bits: 0
   m_LayerOverridePriority: 0
-  m_IsTrigger: 0
+  m_IsTrigger: 1
   m_ProvidesContacts: 0
   m_Enabled: 1
   serializedVersion: 3
   m_Radius: 0.17144538
   m_Center: {x: 0.13868436, y: 0.00000013134196, z: 0.00000009287034}
---- !u!59 &2014820216
-HingeJoint:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2014820211}
-  serializedVersion: 3
-  m_ConnectedBody: {fileID: 0}
-  m_ConnectedArticulationBody: {fileID: 0}
-  m_Anchor: {x: 0, y: 0.0034917442, z: 0}
-  m_Axis: {x: 1, y: 0, z: 0}
-  m_AutoConfigureConnectedAnchor: 1
-  m_ConnectedAnchor: {x: 0, y: 0, z: 0}
-  m_UseSpring: 0
-  m_Spring:
-    spring: 0
-    damper: 0
-    targetPosition: 0
-  m_UseMotor: 0
-  m_Motor:
-    targetVelocity: 0
-    force: 0
-    freeSpin: 0
-  m_UseLimits: 0
-  m_ExtendedLimits: 0
-  m_UseAcceleration: 0
-  m_Limits:
-    min: 0
-    max: 0
-    bounciness: 0
-    bounceMinVelocity: 0.2
-    contactDistance: 0
-  m_BreakForce: Infinity
-  m_BreakTorque: Infinity
-  m_EnableCollision: 0
-  m_EnablePreprocessing: 1
-  m_MassScale: 1
-  m_ConnectedMassScale: 1
 --- !u!54 &2014820217
 Rigidbody:
   m_ObjectHideFlags: 0
@@ -15928,7 +15898,7 @@ Rigidbody:
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
   m_UseGravity: 0
-  m_IsKinematic: 0
+  m_IsKinematic: 1
   m_Interpolate: 0
   m_Constraints: 0
   m_CollisionDetection: 2
@@ -16007,25 +15977,6 @@ MonoBehaviour:
   m_StartingInteractionStrengthFilters: []
   m_AutoFindParentInteractableInHierarchy: 0
   m_ParentInteractableObject: {fileID: 0}
---- !u!114 &2014820219
-MonoBehaviour:
-  m_ObjectHideFlags: 0
-  m_CorrespondingSourceObject: {fileID: 0}
-  m_PrefabInstance: {fileID: 0}
-  m_PrefabAsset: {fileID: 0}
-  m_GameObject: {fileID: 2014820211}
-  m_Enabled: 1
-  m_EditorHideFlags: 0
-  m_Script: {fileID: 11500000, guid: b0f7ff6fb4e05d24496feea5d74b0259, type: 3}
-  m_Name: 
-  m_EditorClassIdentifier: Assembly-CSharp::VR_LeverTrigger
-  hinge: {fileID: 0}
-  generator: {fileID: 0}
-  activationRatio: 0.9
-  allowKeyboardTest: 1
-  onLeverDown:
-    m_PersistentCalls:
-      m_Calls: []
 --- !u!114 &2014820220
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -16038,6 +15989,40 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: e5161862d0c35424c91dcfbec6e8ace7, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GeneratorLeverInteraction
+  pivot: {fileID: 0}
+  generator: {fileID: 1176280313}
+  leftHand: {fileID: 0}
+  rightHand: {fileID: 0}
+  leftGrip:
+    m_UseReference: 0
+    m_Action:
+      m_Name: 
+      m_Type: 0
+      m_ExpectedControlType: 
+      m_Id: 28f8cf33-ec53-4504-9692-835de0b4e03c
+      m_Processors: 
+      m_Interactions: 
+      m_SingletonActionBindings: []
+      m_Flags: 0
+    m_Reference: {fileID: 0}
+  rightGrip:
+    m_UseReference: 0
+    m_Action:
+      m_Name: 
+      m_Type: 0
+      m_ExpectedControlType: 
+      m_Id: c06ad028-c5d9-456b-a017-05c6ae071a2e
+      m_Processors: 
+      m_Interactions: 
+      m_SingletonActionBindings: []
+      m_Flags: 0
+    m_Reference: {fileID: 0}
+  grabRange: 0.45
+  localAxis: {x: 1, y: 0, z: 0}
+  pulledAngle: -70
+  pullDistance: 0.35
+  activateRatio: 0.9
+  stayDownAfterActivated: 1
 --- !u!1001 &2016280071
 PrefabInstance:
   m_ObjectHideFlags: 0
@@ -17447,16 +17432,10 @@ PrefabInstance:
       addedObject: {fileID: 2014820220}
     - targetCorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
       insertIndex: -1
-      addedObject: {fileID: 2014820219}
-    - targetCorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
-      insertIndex: -1
       addedObject: {fileID: 2014820218}
     - targetCorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2014820217}
-    - targetCorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
-      insertIndex: -1
-      addedObject: {fileID: 2014820216}
     - targetCorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
       insertIndex: -1
       addedObject: {fileID: 2014820215}
