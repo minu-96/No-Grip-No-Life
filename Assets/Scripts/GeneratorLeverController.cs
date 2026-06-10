@@ -1,120 +1,175 @@
 ﻿using UnityEngine;
+using UnityEngine.InputSystem;
 
-public class GeneratorLeverController : MonoBehaviour
+public class GeneratorLeverInteraction : MonoBehaviour
 {
-    [SerializeField]
-    private Transform lever;
+    [Header("References")]
+    public Transform pivot;
+    public GeneratorLeverController generator;
 
-    [SerializeField]
-    private float returnSpeed = 2f;
+    [Header("Hands")]
+    public Transform leftHand;
+    public Transform rightHand;
+    public InputActionProperty leftGrip;
+    public InputActionProperty rightGrip;
 
-    [Header("Tower Lights")]
-    [SerializeField]
-    private string transmissionTowerName = "TransmissonTower";
+    [Header("Lever Setting")]
+    public float grabRange = 0.45f;
+    public Vector3 localAxis = Vector3.right;
+    public float pulledAngle = -70f;
+    public float pullDistance = 0.35f;
+    public float activateRatio = 0.9f;
+    public bool stayDownAfterActivated = true;
 
-    [SerializeField]
-    private Light[] transmissionTowerLights;
+    private Vector3 startLocalPosition;
+    private Quaternion startLocalRotation;
 
-    [SerializeField]
-    private bool turnLightsOffOnStart = true;
+    private Transform activeHand;
+    private Vector3 grabStartHandLocalPos;
 
-    private Vector3 initialPosition;
-    private Quaternion initialRotation;
-    private bool isGrabbed = false;
-    private bool isActivated = false;
+    private bool isGrabbed;
+    private bool isActivated;
 
-    private void Start()
+    private void Awake()
     {
-        if (lever == null)
-        {
-            lever = transform.Find("Lever_Pivot/Lever");
-        }
+        if (pivot == null)
+            pivot = transform.parent;
 
-        if (lever != null)
-        {
-            initialPosition = lever.localPosition;
-            initialRotation = lever.localRotation;
-            Debug.Log("GeneratorLeverController initialized");
-        }
-        else
-        {
-            Debug.LogError("Lever not found!");
-        }
+        if (generator == null)
+            generator = GetComponentInParent<GeneratorLeverController>();
 
-        FindTransmissionTowerLights();
+        startLocalPosition = transform.localPosition;
+        startLocalRotation = transform.localRotation;
 
-        if (turnLightsOffOnStart)
+        Rigidbody rb = GetComponent<Rigidbody>();
+        if (rb != null)
         {
-            SetTransmissionTowerLights(false);
+            rb.useGravity = false;
+            rb.isKinematic = true;
         }
+    }
+
+    private void OnEnable()
+    {
+        leftGrip.action?.Enable();
+        rightGrip.action?.Enable();
     }
 
     private void Update()
     {
-        if (lever == null) return;
-
-        if (isGrabbed)
+        if (isActivated && stayDownAfterActivated)
         {
-            lever.localPosition = initialPosition;
-            lever.localRotation = Quaternion.Euler(-60f, 0f, 0f);
-            ActivateGenerator();
-        }
-        else
-        {
-            lever.localPosition = Vector3.Lerp(lever.localPosition, initialPosition, Time.deltaTime * returnSpeed);
-            lever.localRotation = Quaternion.Lerp(lever.localRotation, initialRotation, Time.deltaTime * returnSpeed);
-        }
-    }
-
-    public void OnGrab()
-    {
-        isGrabbed = true;
-    }
-
-    public void OnRelease()
-    {
-        isGrabbed = false;
-    }
-
-    public void ActivateGenerator()
-    {
-        if (isActivated) return;
-
-        isActivated = true;
-        SetTransmissionTowerLights(true);
-        Debug.Log("[GeneratorLeverController] Generator activated. Transmission tower lights are on.");
-    }
-
-    private void FindTransmissionTowerLights()
-    {
-        if (transmissionTowerLights != null && transmissionTowerLights.Length > 0) return;
-
-        GameObject tower = GameObject.Find(transmissionTowerName);
-        if (tower == null)
-        {
-            Debug.LogWarning($"[GeneratorLeverController] Transmission tower not found: {transmissionTowerName}");
+            SetLeverRatio(1f);
             return;
         }
 
-        transmissionTowerLights = tower.GetComponentsInChildren<Light>(true);
+        if (!isGrabbed)
+        {
+            TryStartGrab();
+        }
+        else
+        {
+            UpdateGrab();
+        }
     }
 
-    private void SetTransmissionTowerLights(bool enabled)
+    private void TryStartGrab()
     {
-        if (transmissionTowerLights == null || transmissionTowerLights.Length == 0)
+        if (leftHand != null && IsGripPressed(leftGrip) && IsHandNear(leftHand))
         {
-            FindTransmissionTowerLights();
+            StartGrab(leftHand);
+            return;
         }
 
-        if (transmissionTowerLights == null) return;
-
-        for (int i = 0; i < transmissionTowerLights.Length; i++)
+        if (rightHand != null && IsGripPressed(rightGrip) && IsHandNear(rightHand))
         {
-            if (transmissionTowerLights[i] != null)
-            {
-                transmissionTowerLights[i].gameObject.SetActive(enabled);
-                transmissionTowerLights[i].enabled = enabled;
-            }
+            StartGrab(rightHand);
+            return;
         }
+    }
+
+    private void StartGrab(Transform hand)
+    {
+        activeHand = hand;
+        isGrabbed = true;
+
+        grabStartHandLocalPos = pivot.InverseTransformPoint(activeHand.position);
+
+        Debug.Log("[Lever] 레버 잡힘: " + activeHand.name);
+    }
+
+    private void UpdateGrab()
+    {
+        if (activeHand == null)
+        {
+            EndGrab();
+            return;
+        }
+
+        bool gripStillPressed =
+            activeHand == leftHand ? IsGripPressed(leftGrip) : IsGripPressed(rightGrip);
+
+        if (!gripStillPressed)
+        {
+            EndGrab();
+            return;
+        }
+
+        Vector3 currentHandLocalPos = pivot.InverseTransformPoint(activeHand.position);
+
+        float pullAmount = grabStartHandLocalPos.y - currentHandLocalPos.y;
+        float ratio = Mathf.Clamp01(pullAmount / pullDistance);
+
+        SetLeverRatio(ratio);
+
+        if (!isActivated && ratio >= activateRatio)
+        {
+            isActivated = true;
+            Debug.Log("[Lever] 발전기 작동");
+
+            if (generator != null)
+                generator.ActivateGenerator();
+
+            if (stayDownAfterActivated)
+                SetLeverRatio(1f);
+        }
+    }
+
+    private void EndGrab()
+    {
+        Debug.Log("[Lever] 레버 놓음");
+
+        isGrabbed = false;
+        activeHand = null;
+
+        if (isActivated && stayDownAfterActivated)
+            SetLeverRatio(1f);
+        else
+            SetLeverRatio(0f);
+    }
+
+    private bool IsHandNear(Transform hand)
+    {
+        float distance = Vector3.Distance(hand.position, transform.position);
+        return distance <= grabRange;
+    }
+
+    private bool IsGripPressed(InputActionProperty action)
+    {
+        if (action.action == null)
+            return false;
+
+        return action.action.ReadValue<float>() > 0.5f;
+    }
+
+    private void SetLeverRatio(float ratio)
+    {
+        ratio = Mathf.Clamp01(ratio);
+
+        Quaternion deltaRotation =
+            Quaternion.AngleAxis(pulledAngle * ratio, localAxis.normalized);
+
+        transform.localPosition = deltaRotation * startLocalPosition;
+        transform.localRotation = deltaRotation * startLocalRotation;
     }
 }

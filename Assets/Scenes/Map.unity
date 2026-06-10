@@ -3582,14 +3582,14 @@ MonoBehaviour:
   grabDetector: {fileID: 381296330}
   grabRadius: 0.35
   handoffGrabRadius: 0.75
+  grabPointLayer:
+    serializedVersion: 2
+    m_Bits: 64
   minGrabHoldTime: 0.25
   releaseOnGripRelease: 0
   releaseThreshold: 0.08
   releaseConfirmTime: 0.2
   climbMoveMultiplier: 1
-  grabPointLayer:
-    serializedVersion: 2
-    m_Bits: 64
   isGrabbing: 0
   targetPointName: 
   useHaptics: 1
@@ -6583,7 +6583,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.x
-      value: 18.73
+      value: 15.31
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.y
@@ -6591,7 +6591,7 @@ PrefabInstance:
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalPosition.z
-      value: 8.9
+      value: 16.3
       objectReference: {fileID: 0}
     - target: {fileID: 8806329115733545878, guid: 77e7c27b2c5525e4aa8cc9f99d654486, type: 3}
       propertyPath: m_LocalRotation.w
@@ -6968,14 +6968,14 @@ MonoBehaviour:
   grabDetector: {fileID: 679992498}
   grabRadius: 0.35
   handoffGrabRadius: 0.75
+  grabPointLayer:
+    serializedVersion: 2
+    m_Bits: 64
   minGrabHoldTime: 0.25
   releaseOnGripRelease: 0
   releaseThreshold: 0.08
   releaseConfirmTime: 0.2
   climbMoveMultiplier: 1
-  grabPointLayer:
-    serializedVersion: 2
-    m_Bits: 64
   isGrabbing: 0
   targetPointName: 
   useHaptics: 1
@@ -9930,8 +9930,6 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: ebfe1e71530aede4687b33c435735ff1, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::GeneratorLeverController
-  lever: {fileID: 2014820212}
-  returnSpeed: 2
   transmissionTowerName: TransmissonTower
   transmissionTowerLights: []
   turnLightsOffOnStart: 1
@@ -10099,6 +10097,7 @@ MonoBehaviour:
   leftHand: {fileID: 0}
   rightHand: {fileID: 0}
   activeHand: {fileID: 0}
+  handoffGraceTime: 0.25
 --- !u!114 &1205187692
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15846,11 +15845,6 @@ GameObject:
   m_CorrespondingSourceObject: {fileID: 1014952916102229060, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
   m_PrefabInstance: {fileID: 6414526717345580676}
   m_PrefabAsset: {fileID: 0}
---- !u!4 &2014820212 stripped
-Transform:
-  m_CorrespondingSourceObject: {fileID: 2910044350065563429, guid: e4ed53867feaf3748bbc4477eec6d6a3, type: 3}
-  m_PrefabInstance: {fileID: 6414526717345580676}
-  m_PrefabAsset: {fileID: 0}
 --- !u!135 &2014820215
 SphereCollider:
   m_ObjectHideFlags: 0
@@ -15933,11 +15927,11 @@ Rigidbody:
     m_Bits: 0
   m_ImplicitCom: 1
   m_ImplicitTensor: 1
-  m_UseGravity: 1
+  m_UseGravity: 0
   m_IsKinematic: 0
   m_Interpolate: 0
   m_Constraints: 0
-  m_CollisionDetection: 0
+  m_CollisionDetection: 2
 --- !u!114 &2014820218
 MonoBehaviour:
   m_ObjectHideFlags: 0
@@ -15951,7 +15945,8 @@ MonoBehaviour:
   m_Name: 
   m_EditorClassIdentifier: Unity.XR.Interaction.Toolkit::UnityEngine.XR.Interaction.Toolkit.Interactables.XRSimpleInteractable
   m_InteractionManager: {fileID: 0}
-  m_Colliders: []
+  m_Colliders:
+  - {fileID: 0}
   m_InteractionLayers:
     m_Bits: 1
   m_DistanceCalculationMode: 1
@@ -16024,6 +16019,10 @@ MonoBehaviour:
   m_Script: {fileID: 11500000, guid: b0f7ff6fb4e05d24496feea5d74b0259, type: 3}
   m_Name: 
   m_EditorClassIdentifier: Assembly-CSharp::VR_LeverTrigger
+  hinge: {fileID: 0}
+  generator: {fileID: 0}
+  activationRatio: 0.9
+  allowKeyboardTest: 1
   onLeverDown:
     m_PersistentCalls:
       m_Calls: []
