@@ -1,4 +1,5 @@
 using UnityEngine;
+using UnityEngine.XR;
 using UnityEngine.XR.Interaction.Toolkit.Locomotion.Gravity;
 
 public class ClimbingManager : MonoBehaviour
@@ -11,10 +12,18 @@ public class ClimbingManager : MonoBehaviour
 
     public float handoffGraceTime = 0.25f;
 
+    [Header("Snap Turn")]
+    public bool enableRightStickSnapTurn = true;
+    public float snapTurnAngle = 30f;
+    public float snapTurnThreshold = 0.65f;
+    public float snapTurnResetThreshold = 0.25f;
+
     private CharacterController characterController;
+    private Camera xrCamera;
     private GravityProvider[] gravityProviders;
     private bool[] originalGravityEnabled;
     private float handoffGraceUntilTime;
+    private bool snapTurnArmed = true;
 
     void Awake()
     {
@@ -24,6 +33,7 @@ public class ClimbingManager : MonoBehaviour
     void Start()
     {
         characterController = GetComponentInChildren<CharacterController>();
+        xrCamera = GetComponentInChildren<Camera>();
         CacheGravityProviders();
     }
 
@@ -69,6 +79,8 @@ public class ClimbingManager : MonoBehaviour
 
     void LateUpdate()
     {
+        HandleRightStickSnapTurn();
+
         bool isClimbing = IsClimbingOrHandingOff();
 
         if (isClimbing)
@@ -89,6 +101,39 @@ public class ClimbingManager : MonoBehaviour
                 characterController.enabled = true;
             }
         }
+    }
+
+    private void HandleRightStickSnapTurn()
+    {
+        if (!enableRightStickSnapTurn) return;
+        if (IsClimbingOrHandingOff()) return;
+
+        InputDevice rightHandDevice = InputDevices.GetDeviceAtXRNode(XRNode.RightHand);
+        if (!rightHandDevice.isValid) return;
+        if (!rightHandDevice.TryGetFeatureValue(CommonUsages.primary2DAxis, out Vector2 axis)) return;
+
+        if (Mathf.Abs(axis.x) < snapTurnResetThreshold)
+        {
+            snapTurnArmed = true;
+            return;
+        }
+
+        if (!snapTurnArmed || Mathf.Abs(axis.x) < snapTurnThreshold) return;
+
+        float turnAmount = axis.x > 0f ? snapTurnAngle : -snapTurnAngle;
+        RotateAroundCamera(turnAmount);
+        snapTurnArmed = false;
+    }
+
+    private void RotateAroundCamera(float angle)
+    {
+        if (xrCamera == null)
+        {
+            xrCamera = GetComponentInChildren<Camera>();
+        }
+
+        Vector3 pivot = xrCamera != null ? xrCamera.transform.position : transform.position;
+        transform.RotateAround(pivot, Vector3.up, angle);
     }
 
     private void CacheGravityProviders()

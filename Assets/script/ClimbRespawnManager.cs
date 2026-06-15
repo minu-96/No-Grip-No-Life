@@ -37,6 +37,16 @@ public class ClimbRespawnManager : MonoBehaviour
     [Tooltip("Extra distance used to detect and snap onto ground below the player.")]
     public float groundSnapDistance = 0.5f;
 
+    [Tooltip("How far below the CharacterController foot position counts as real floor.")]
+    public float footGroundCheckDistance = 0.35f;
+
+    [Tooltip("How high above the CharacterController foot position to start the ground ray.")]
+    public float footGroundRayStartHeight = 1.0f;
+
+    [Tooltip("How far around the CharacterController center to check for foot support.")]
+    [Range(0.05f, 1.0f)]
+    public float footGroundProbeRadiusScale = 0.35f;
+
     [Tooltip("Keep the CharacterController centered on the checkpoint instead of applying room-scale camera XZ offset.")]
     public bool centerControllerOnCheckpoint = true;
 
@@ -51,6 +61,9 @@ public class ClimbRespawnManager : MonoBehaviour
 
     [Tooltip("Seconds to ignore checkpoint changes and fall respawn checks after respawning.")]
     public float postRespawnGraceTime = 3.0f;
+
+    [Tooltip("Seconds to wait for XR tracking and CharacterController alignment before applying fall checks at scene start.")]
+    public float startupGroundingGraceTime = 0.5f;
 
     [Tooltip("Seconds to keep gravity disabled after respawning at an explicit RespawnPoint.")]
     public float explicitRespawnGravityPause = 3.0f;
@@ -100,6 +113,7 @@ public class ClimbRespawnManager : MonoBehaviour
     private float ignoreRespawnUntilTime;
     private float pauseGravityUntilTime;
     private bool holdingAtExplicitRespawn;
+    private bool fallRespawnArmed;
 
     void Start()
     {
@@ -130,6 +144,7 @@ public class ClimbRespawnManager : MonoBehaviour
         }
 
         lastCheckpointPos = xrOrigin.transform.position;
+        ignoreRespawnUntilTime = Time.time + startupGroundingGraceTime;
         RefreshCheckpointColliders();
         RefreshRespawnPoints();
     }
@@ -176,6 +191,7 @@ public class ClimbRespawnManager : MonoBehaviour
                 activeHand = newHand;
                 isClimbing = true;
                 fallVelocity = Vector3.zero;
+                fallRespawnArmed = false;
                 StopRespawn();
             }
 
@@ -193,6 +209,7 @@ public class ClimbRespawnManager : MonoBehaviour
             if (ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff())
             {
                 fallVelocity = Vector3.zero;
+                fallRespawnArmed = false;
                 StopRespawn();
                 return;
             }
@@ -255,11 +272,30 @@ public class ClimbRespawnManager : MonoBehaviour
 
         AlignCharacterControllerToCamera();
 
-        if (IsCameraNearGround())
+        bool footOnGround = IsFootOnGround();
+        if (fallRespawnArmed)
+        {
+            ContinueFallRespawn();
+            return;
+        }
+
+        if (footOnGround)
         {
             fallVelocity = Vector3.zero;
             StopRespawn();
             return;
+        }
+
+        fallRespawnArmed = true;
+        ContinueFallRespawn();
+        return;
+    }
+
+    private void ContinueFallRespawn()
+    {
+        if (!isRespawning && respawnCoroutine == null)
+        {
+            respawnCoroutine = StartCoroutine(RespawnAfterDelay());
         }
 
         if (!characterController.enabled)
@@ -268,38 +304,8 @@ public class ClimbRespawnManager : MonoBehaviour
             Physics.SyncTransforms();
         }
 
-        if (TrySnapToGround())
-        {
-            fallVelocity = Vector3.zero;
-            StopRespawn();
-            return;
-        }
-
-        CollisionFlags groundProbe = characterController.Move(Vector3.down * 0.02f);
-
-        if ((groundProbe & CollisionFlags.Below) != 0)
-        {
-            fallVelocity = Vector3.zero;
-            StopRespawn();
-            return;
-        }
-
         fallVelocity.y -= gravity * Time.deltaTime;
-
-        CollisionFlags fallCollision = characterController.Move(fallVelocity * Time.deltaTime);
-
-        if ((fallCollision & CollisionFlags.Below) != 0)
-        {
-            fallVelocity = Vector3.zero;
-            StopRespawn();
-            TrySnapToGround();
-            return;
-        }
-
-        if (!isRespawning && respawnCoroutine == null)
-        {
-            respawnCoroutine = StartCoroutine(RespawnAfterDelay());
-        }
+        characterController.Move(fallVelocity * Time.deltaTime);
     }
 
     IEnumerator RespawnAfterDelay()
@@ -311,7 +317,11 @@ public class ClimbRespawnManager : MonoBehaviour
         respawnCoroutine = null;
 
         bool isClimbingOrHandingOff = ClimbingManager.Instance != null && ClimbingManager.Instance.IsClimbingOrHandingOff();
-        if (!isClimbingOrHandingOff && !isClimbing && GetCurrentHand() == null)
+        if (fallRespawnArmed && GetCurrentHand() == null)
+        {
+            StartSafeRespawn();
+        }
+        else if (!isClimbingOrHandingOff && !isClimbing && GetCurrentHand() == null)
         {
             StartSafeRespawn();
         }
@@ -333,6 +343,7 @@ public class ClimbRespawnManager : MonoBehaviour
 
         if (gameObject.activeInHierarchy)
         {
+            fallRespawnArmed = false;
             ReleaseHandsForRespawn();
 
             if (lastCheckpointRoot == null)
@@ -830,9 +841,8 @@ public class ClimbRespawnManager : MonoBehaviour
     {
         if (isRespawning || safeRespawnCoroutine != null) return false;
         if (characterController == null || !characterController.enabled) return false;
-        if (characterController.isGrounded) return true;
 
-        return TryFindGroundBelow(out _);
+        return IsFootOnGround();
     }
 
     private Vector3 GetCheckpointSpawnCenter(Transform checkpointRoot, Collider checkpointTrigger, out string spawnSource)
@@ -996,7 +1006,7 @@ public class ClimbRespawnManager : MonoBehaviour
     private bool TrySnapToGround()
     {
         if (characterController == null || !characterController.enabled) return false;
-        if (!TryFindGroundBelow(out RaycastHit hit)) return false;
+        if (!TryFindFootGround(out RaycastHit hit)) return false;
 
         float halfHeight = Mathf.Max(characterController.height * 0.5f, characterController.radius);
         float desiredOriginY = hit.point.y + halfHeight - characterController.center.y + characterController.skinWidth + 0.01f;
@@ -1031,6 +1041,63 @@ public class ClimbRespawnManager : MonoBehaviour
         }
 
         return Vector3.Angle(hit.normal, Vector3.up) <= characterController.slopeLimit;
+    }
+
+    private bool IsFootOnGround()
+    {
+        return TryFindFootGround(out _);
+    }
+
+    private bool TryFindFootGround(out RaycastHit hit)
+    {
+        hit = default;
+        if (characterController == null) return false;
+
+        float controllerHeight = Mathf.Max(characterController.height, characterController.radius * 2f);
+        Vector3 controllerCenter = characterController.transform.TransformPoint(characterController.center);
+        float footY = controllerCenter.y - (controllerHeight * 0.5f);
+        Vector3 probeCenter = xrOrigin != null && xrOrigin.Camera != null
+            ? xrOrigin.Camera.transform.position
+            : controllerCenter;
+
+        float rayStartHeight = Mathf.Max(footGroundRayStartHeight, characterController.skinWidth + 0.05f);
+        float rayStartY = Mathf.Max(footY + rayStartHeight, probeCenter.y + 0.05f);
+        float rayDistance = (rayStartY - footY) + Mathf.Max(footGroundCheckDistance, 0.01f);
+        float probeRadius = characterController.radius * Mathf.Clamp01(footGroundProbeRadiusScale);
+
+        Vector3 center = new Vector3(probeCenter.x, rayStartY, probeCenter.z);
+        Vector3[] origins =
+        {
+            center,
+            center + Vector3.forward * probeRadius,
+            center + Vector3.back * probeRadius,
+            center + Vector3.left * probeRadius,
+            center + Vector3.right * probeRadius
+        };
+
+        float bestDistance = float.MaxValue;
+
+        for (int i = 0; i < origins.Length; i++)
+        {
+            if (!Physics.Raycast(
+                origins[i],
+                Vector3.down,
+                out RaycastHit candidate,
+                rayDistance,
+                ~0,
+                QueryTriggerInteraction.Ignore))
+            {
+                continue;
+            }
+
+            if (Vector3.Angle(candidate.normal, Vector3.up) > characterController.slopeLimit) continue;
+            if (candidate.distance >= bestDistance) continue;
+
+            bestDistance = candidate.distance;
+            hit = candidate;
+        }
+
+        return bestDistance < float.MaxValue;
     }
 
     private bool TryFindGroundBelow(out RaycastHit hit)

@@ -20,12 +20,21 @@ public class ClimbingHand : MonoBehaviour
     public float handoffGrabRadius = 0.75f;
     public LayerMask grabPointLayer;
     public float minGrabHoldTime = 0.25f;
-    public bool releaseOnGripRelease = false;
+    public bool releaseOnGripRelease = true;
     public float releaseThreshold = 0.08f;
     public float releaseConfirmTime = 0.2f;
 
     [Header("Climbing")]
     public float climbMoveMultiplier = 1.0f;
+    public ClimbRespawnManager climbRespawnManager;
+    [Tooltip("Extra multiplier applied only to vertical climbing. Raise this for more upward progress without amplifying horizontal jitter.")]
+    public float verticalClimbMultiplier = 4.2f;
+    [Tooltip("Multiplier for horizontal hand movement while climbing. Keep near 1 to avoid VR jitter.")]
+    public float horizontalClimbMultiplier = 1.0f;
+    [Tooltip("Maximum XR Origin movement applied by one hand in a single frame.")]
+    public float maxClimbMovePerFrame = 0.22f;
+    [Tooltip("Higher values follow the hand faster. Lower values smooth tracking noise more.")]
+    public float climbMoveSmoothing = 20f;
 
     [Header("State")]
     public bool isGrabbing;
@@ -38,6 +47,7 @@ public class ClimbingHand : MonoBehaviour
 
     private GrabPoint grabbedPoint;
     private Vector3 previousHandWorldPos;
+    private Vector3 smoothedClimbMove;
     private float nextNoGrabLogTime;
     private float ignoreReleaseUntilTime;
     private float releaseStartedTime = -1f;
@@ -52,6 +62,11 @@ public class ClimbingHand : MonoBehaviour
         {
             if (handType == HandType.Left) ClimbingManager.Instance.leftHand = this;
             else ClimbingManager.Instance.rightHand = this;
+        }
+
+        if (climbRespawnManager == null)
+        {
+            climbRespawnManager = FindObjectOfType<ClimbRespawnManager>();
         }
     }
 
@@ -128,10 +143,40 @@ public class ClimbingHand : MonoBehaviour
 
         if (handMoveDelta.sqrMagnitude > MOVE_DEADZONE_SQR)
         {
-            xrOrigin.transform.position -= handMoveDelta * climbMoveMultiplier;
+            Vector3 climbMove = GetScaledClimbMove(handMoveDelta);
+            float smoothing = 1f - Mathf.Exp(-Mathf.Max(climbMoveSmoothing, 0f) * Time.deltaTime);
+            smoothedClimbMove = Vector3.Lerp(smoothedClimbMove, climbMove, smoothing);
+            xrOrigin.transform.position += smoothedClimbMove;
+        }
+        else
+        {
+            smoothedClimbMove = Vector3.zero;
         }
 
         previousHandWorldPos = currentHandWorldPos;
+    }
+
+    private Vector3 GetScaledClimbMove(Vector3 handMoveDelta)
+    {
+        float managerMultiplier = climbRespawnManager != null
+            ? climbRespawnManager.climbMultiplier
+            : 1.0f;
+
+        Vector3 climbMove = -handMoveDelta;
+        float horizontalMultiplier = climbMoveMultiplier * horizontalClimbMultiplier;
+        float verticalMultiplier = climbMoveMultiplier * managerMultiplier * verticalClimbMultiplier;
+
+        climbMove.x *= horizontalMultiplier;
+        climbMove.z *= horizontalMultiplier;
+        climbMove.y *= verticalMultiplier;
+
+        float maxMove = Mathf.Max(maxClimbMovePerFrame, 0.01f);
+        if (climbMove.magnitude > maxMove)
+        {
+            climbMove = climbMove.normalized * maxMove;
+        }
+
+        return climbMove;
     }
 
     void TryGrab()
@@ -219,6 +264,7 @@ public class ClimbingHand : MonoBehaviour
         targetPointName = grabbedPoint.gameObject.name;
         ReleaseOtherHand();
         previousHandWorldPos = transform.position;
+        smoothedClimbMove = Vector3.zero;
         ignoreReleaseUntilTime = Time.time + minGrabHoldTime;
         releaseStartedTime = -1f;
 
@@ -257,6 +303,7 @@ public class ClimbingHand : MonoBehaviour
         targetPointName = "";
         releaseStartedTime = -1f;
         previousHandWorldPos = transform.position;
+        smoothedClimbMove = Vector3.zero;
         Debug.LogWarning($"[ClimbingHand] {gameObject.name} released for handoff");
     }
 
@@ -279,6 +326,7 @@ public class ClimbingHand : MonoBehaviour
         isGrabbing = false;
         grabbedPoint = null;
         targetPointName = "";
+        smoothedClimbMove = Vector3.zero;
 
         if (ClimbingManager.Instance != null &&
             ClimbingManager.Instance.activeHand == this)
